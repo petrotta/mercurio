@@ -1,0 +1,74 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'org.graalvm.buildtools.native' version '0.10.3'
+}
+
+application {
+    mainClass = 'Application'
+}
+group = 'org.example'
+version = '1.0-SNAPSHOT'
+
+repositories {
+
+    maven {
+        name = "GitHubPackages"
+        url = uri("https://maven.pkg.github.com/Systems-Modeling/SysML-v2-Pilot-Implementation")
+        credentials {
+            username = project.findProperty("gpr.user") ?: System.getenv("USERNAME")
+            password = project.findProperty("gpr.key") ?: System.getenv("TOKEN")
+        }
+    }
+    maven {
+        url = uri("https://repo.eclipse.org")
+    }
+
+
+    mavenLocal()
+    mavenCentral()
+    maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    implementation 'info.picocli:picocli:4.7.6'
+    annotationProcessor 'info.picocli:picocli-codegen:4.7.6'
+
+    implementation 'org.omg.sysml:org.omg.sysml:0.46.0-SNAPSHOT'
+    implementation 'org.omg.sysml:org.omg.sysml.interactive:0.46.0-SNAPSHOT:all' // all needed for json serialization
+
+
+
+
+    // Eclipse products
+    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext', version: '2.34.0'
+    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.common.types', version: '2.34.0'
+    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.xbase', version: '2.34.0'
+
+//    compileOnly 'org.osgi:org.osgi.service.cm:1.6.1'
+
+}
+
+test {
+    useJUnitPlatform()
+}
+
+graalvmNative {
+    binaries {
+        main {
+            buildArgs.add('-H:+AddAllCharsets')
+            buildArgs.add("-g")
+
+
+        }
+    }
+//    binaries.all {
+//       // resources.autodetect()
+//
+//    }
+//    //toolchainDetection = true
+
+}
