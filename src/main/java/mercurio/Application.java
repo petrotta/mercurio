@@ -19,7 +19,9 @@ public class Application {
 
         CommandLine commandLine = new CommandLine(new Application())
                 .addSubcommand("validate",   new Validate())
-                .addSubcommand("eval",   new Evaluate());
+                .addSubcommand("eval",   new Evaluate())
+                .addSubcommand("version",     new Version())
+                .addSubcommand("inspect",         new Inspect());
 
         int exitCode = commandLine.execute(args );
 
