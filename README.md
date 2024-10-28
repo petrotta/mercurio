@@ -1,4 +1,4 @@
-A SysMLv2 command line interpreter, designed to run with entirely native code.
+A SysMLv2 command line interpreter, designed to run with entirely native code.  It can be compiled to native Windows, Linux, or Apple binaries.  Once compiled into a single exe, there are not other dependencies (including JDK, etc).  
 
 Compilation: 
 
