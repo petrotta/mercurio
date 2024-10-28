@@ -1,3 +1,5 @@
+package mercurio;
+
 import org.eclipse.xtext.validation.Issue;
 import org.omg.sysml.interactive.SysMLInteractive;
 import picocli.CommandLine;
@@ -10,31 +12,30 @@ import java.util.concurrent.Callable;
         description = "Checks the source files for compile errors.")
 class Validate implements Callable<Integer> {
 
-    @CommandLine.Option(names = { "-src", "--src" }, paramLabel = "SOURCE", description = "the source files or directories")
+    @CommandLine.Option(names = { "-src", "--src" }, paramLabel = "SOURCE", description = "the source files or directories", arity = "0..1")
     private File file;
 
-
-    @CommandLine.Option(names = { "-lib", "--lib" }, paramLabel = "LIBRARY", description = "the library directory")
-    //@CommandLine.Parameters(index = "0", description = "The file or directory to check.")
+    @CommandLine.Option(names = { "-lib", "--lib" }, paramLabel = "LIBRARY", description = "the library directory", arity = "0..1")
     private File libDir;
 
-
-//    @CommandLine.Option(names = {"-a", "--algorithm"}, description = "MD5, SHA-1, SHA-256, ...")
-//    private String algorithm = "SHA-256";
+    @CommandLine.Option(names = { "-verbose", "-v" }, paramLabel = "VERBOSE", description = "turn on verbose output", arity = "0..1", defaultValue = "false")
+    private boolean verbose;
 
     @Override
     public Integer call() throws Exception { // your business logic goes here...
 
-        System.out.println("Working Directory = " + System.getProperty("user.dir"));
-        System.out.println("file: "+ file.toString());
 
-        SysMLInteractive interactive = SysMLInteractive.createInstance();
-
-        if(libDir != null) {
-            interactive.readAll(new File(libDir, "Kernal Libraries").getPath(), false, ".kerml");
-            interactive.readAll(new File(libDir, "Systems Libraries").getPath(), false, ".sysml");
-            interactive.readAll(new File(libDir, "Domain Libraries").getPath(), false, ".sysml");
+        File userDir = new File(System.getProperty("user.dir"));
+        File curDir = null;
+        if(file == null) {
+            curDir = userDir;
         }
+        System.out.println("Working Dir: " + curDir);
+        System.out.println("Start Dir:   "+ file.toString());
+
+        System.out.println("Lib Dir:     "+ libDir.toString());
+        SysMLInteractive interactive = Application.getSysMLInteractive();
+
         interactive.readAll(file.toString(),true, ".sysml");
         interactive.validate();
 

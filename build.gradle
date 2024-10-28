@@ -1,13 +1,16 @@
 plugins {
     id 'java'
     id 'application'
+
     id 'org.graalvm.buildtools.native' version '0.10.3'
+//    id 'com.gluonhq.gluonfx-gradle-plugin' version '1.0.24'
+
 }
 
 application {
-    mainClass = 'Application'
+    mainClass = 'mercurio.Application'
 }
-group = 'org.example'
+group = 'org.mercurio'
 version = '1.0-SNAPSHOT'
 
 repositories {
@@ -60,15 +63,9 @@ graalvmNative {
     binaries {
         main {
             buildArgs.add('-H:+AddAllCharsets')
-            buildArgs.add("-g")
-
-
+            //buildArgs.add("-g")
         }
     }
-//    binaries.all {
-//       // resources.autodetect()
-//
-//    }
-//    //toolchainDetection = true
 
 }
+

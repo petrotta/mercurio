@@ -1,5 +1,10 @@
-import org.eclipse.xtext.validation.Issue;
+package mercurio;
+
 import org.omg.sysml.interactive.SysMLInteractive;
+import org.omg.sysml.interactive.SysMLInteractiveResult;
+
+import org.omg.sysml.lang.sysml.Element;
+import org.omg.sysml.lang.sysml.Namespace;
 import picocli.CommandLine;
 
 import java.io.File;
@@ -14,7 +19,7 @@ public class Evaluate implements Callable<Integer> {
     private File file;
 
 
-    @CommandLine.Option(names = { "-lib", "--lib" }, paramLabel = "LIBRARY", description = "the library directory")
+    @CommandLine.Option(names = { "-lib", "--lib" }, paramLabel = "LIBRARY", description = "the library directory",arity = "0..1")
     //@CommandLine.Parameters(index = "0", description = "The file or directory to check.")
     private File libDir;
 
@@ -29,21 +34,30 @@ public class Evaluate implements Callable<Integer> {
         System.out.println("Working Directory = " + System.getProperty("user.dir"));
         System.out.println("file: "+ file.toString());
 
-        SysMLInteractive interactive = SysMLInteractive.createInstance();
 
-        if(libDir != null) {
-            interactive.readAll(new File(libDir, "Kernal Libraries").getPath(), false, ".kerml");
-            interactive.readAll(new File(libDir, "Systems Libraries").getPath(), false, ".sysml");
-            interactive.readAll(new File(libDir, "Domain Libraries").getPath(), false, ".sysml");
-        }
+        SysMLInteractive interactive = Application.getSysMLInteractive();
+
         interactive.readAll(file.toString(),true, ".sysml");
 
 
         System.out.println("# resources read: " + interactive.getResourceSet().getResources().size());
 
 
+
+
         System.out.println( interactive.eval(input, target));
 
         return 0;
     }
+
+    public List<Element> process(SysMLInteractive instance, String input) {
+
+        SysMLInteractiveResult result = instance.process(input);
+
+        Element root = result.getRootElement();
+
+        return ((Namespace)root).getOwnedMember();
+    }
+
+
 }
