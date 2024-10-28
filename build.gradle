@@ -51,6 +51,8 @@ dependencies {
     implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.common.types', version: '2.34.0'
     implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.xbase', version: '2.34.0'
 
+
+
 //    compileOnly 'org.osgi:org.osgi.service.cm:1.6.1'
 
 }
@@ -62,10 +64,18 @@ test {
 graalvmNative {
     binaries {
         main {
+            buildArgs.add('-H:+UnlockExperimentalVMOptions')
             buildArgs.add('-H:+AddAllCharsets')
+            buildArgs.add('-H:Log=registerResource:verbose')
+           // buildArgs.add('-H:IncludeResources=\'.*/Resource.*xmi\$\'')
+
             //buildArgs.add("-g")
         }
     }
+    binaries.all {
+        resources.autodetect()
+    }
 
 }
+
 

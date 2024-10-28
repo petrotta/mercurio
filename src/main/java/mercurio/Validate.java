@@ -13,7 +13,7 @@ import java.util.concurrent.Callable;
 class Validate implements Callable<Integer> {
 
     @CommandLine.Option(names = { "-src", "--src" }, paramLabel = "SOURCE", description = "the source files or directories", arity = "0..1")
-    private File file;
+    private File sourceDir;
 
     @CommandLine.Option(names = { "-lib", "--lib" }, paramLabel = "LIBRARY", description = "the library directory", arity = "0..1")
     private File libDir;
@@ -26,17 +26,26 @@ class Validate implements Callable<Integer> {
 
 
         File userDir = new File(System.getProperty("user.dir"));
-        File curDir = null;
-        if(file == null) {
-            curDir = userDir;
+        //File curDir = null;
+        if(sourceDir == null) {
+            sourceDir = userDir;
+            //curDir = userDir;
         }
-        System.out.println("Working Dir: " + curDir);
-        System.out.println("Start Dir:   "+ file.toString());
 
-        System.out.println("Lib Dir:     "+ libDir.toString());
+
+        System.out.println("User Dir: " + userDir.getAbsolutePath());
+        System.out.println("Source Dir:   "+ sourceDir.toString());
+
+        if(libDir == null) {
+            libDir = Application.getLibraryDir();
+            System.out.println("Library Dir (default): " + libDir.getAbsolutePath());
+        } else {
+            System.out.println("Library Dir: " + libDir.getAbsolutePath());
+        }
+        //System.out.println("Lib Dir:     "+ libDir.toString());
         SysMLInteractive interactive = Application.getSysMLInteractive();
 
-        interactive.readAll(file.toString(),true, ".sysml");
+        interactive.readAll(sourceDir.toString(),true, ".sysml");
         interactive.validate();
 
         System.out.println("# resources read: " + interactive.getResourceSet().getResources().size());

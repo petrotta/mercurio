@@ -47,9 +47,9 @@ class Inspect implements Callable<Integer> {
         return 0;
     }
 
-    public static void main(String[] args) {
-        int exitCode = new CommandLine(new Validate()).execute(args);
-    }
+//    public static void main(String[] args) {
+//        int exitCode = new CommandLine(new Validate()).execute(args);
+//    }
 
 
 }

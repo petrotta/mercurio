@@ -10,6 +10,7 @@ import java.io.InputStream;
 
 @CommandLine.Command()
 public class Application {
+    public static final String APP_VERSION = "0.0.1";
     private static final String APP_LOCATION = ".mercurio";
 
     public static void main(String... args) {
@@ -45,7 +46,7 @@ public class Application {
 
     static void createDefaultLibrary(File libDir) throws IOException {
 
-        InputStream inStream = Application.class.getResourceAsStream("sysml.library.zip");
+        InputStream inStream = Application.class.getClassLoader().getResourceAsStream("mercurio/sysml.library.zip");
         ZipUtils.unzip(inStream, libDir.toPath());
 
     }
