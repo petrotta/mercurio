@@ -12,7 +12,7 @@ import java.util.concurrent.Callable;
         description = "Checks the source files for compile errors.")
 class Validate implements Callable<Integer> {
 
-    @CommandLine.Option(names = { "-src", "--src" }, paramLabel = "SOURCE", description = "the source files or directories", arity = "0..1")
+    @CommandLine.Option(names = { "-dir", "--dir" }, paramLabel = "SOURCE", description = "the source files or directories", arity = "0..1")
     private File sourceDir;
 
     @CommandLine.Option(names = { "-lib", "--lib" }, paramLabel = "LIBRARY", description = "the library directory", arity = "0..1")

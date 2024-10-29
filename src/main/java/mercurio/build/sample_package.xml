@@ -1,0 +1,18 @@
+<package format="2">
+    <org>AAA</org>
+    <project>foo_core</project>
+    <version>1.2.4</version>
+    <description>
+        This package provides foo capability.
+    </description>
+    <maintainer email="ivana@willowgarage.com">Ivana Bildbotz</maintainer>
+    <license>BSD</license>
+
+    <url>http://ros.org/wiki/foo_core</url>
+    <author>Ivana Bildbotz</author>
+
+
+    <depend>roscpp</depend>
+    <depend>std_msgs</depend>
+
+</package>

@@ -31,6 +31,8 @@ repositories {
     mavenLocal()
     mavenCentral()
     maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+    maven { url 'https://repo.maven.apache.org/maven2/' }
+
 
 }
 
@@ -50,6 +52,10 @@ dependencies {
     implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext', version: '2.34.0'
     implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.common.types', version: '2.34.0'
     implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.xbase', version: '2.34.0'
+
+
+
+    implementation 'commons-digester:commons-digester:2.1'
 
 
 
