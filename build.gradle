@@ -72,16 +72,16 @@ test {
 
 graalvmNative {
 
+
+
     binaries {
         main {
             buildArgs.add('-H:+UnlockExperimentalVMOptions')
             buildArgs.add('-H:+AddAllCharsets')
             buildArgs.add('-H:Log=registerResource:verbose');
-           // buildArgs.add('-H:-Ob')
+            buildArgs.add('--enable-url-protocols=https');
+            buildArgs.add('--enable-url-protocols=http');
 
-           // buildArgs.add('-H:IncludeResources=\'.*/Resource.*xmi\$\'')
-
-            //buildArgs.add("-g")
         }
     }
     binaries.all {
