@@ -1,16 +1,13 @@
 plugins {
     id 'java'
     id 'application'
-
     id 'org.graalvm.buildtools.native' version '0.10.3'
-//    id 'com.gluonhq.gluonfx-gradle-plugin' version '1.0.24'
-
 }
 
 application {
-    mainClass = 'mercurio.Application'
+    mainClass = 'io.github.petrotta.mercurio.Application'
 }
-group = 'org.mercurio'
+group = 'com.learnsysml'
 version = '1.0-SNAPSHOT'
 
 repositories {
@@ -39,6 +36,8 @@ repositories {
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+
+
     implementation 'info.picocli:picocli:4.7.6'
     annotationProcessor 'info.picocli:picocli-codegen:4.7.6'
 
@@ -54,13 +53,17 @@ dependencies {
     implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.xbase', version: '2.34.0'
 
 
+//    implementation 'org.codehaus.groovy:groovy-all:3.0.21'
 
-    implementation 'commons-digester:commons-digester:2.1'
+    implementation 'org.eclipse.jgit:org.eclipse.jgit:3.5.0.201409260305-r'
 
+    implementation  'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.11.1'
 
+    compileOnly 'org.projectlombok:lombok:1.18.34'
+    annotationProcessor 'org.projectlombok:lombok:1.18.34'
 
-//    compileOnly 'org.osgi:org.osgi.service.cm:1.6.1'
-
+    testCompileOnly 'org.projectlombok:lombok:1.18.34'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.34'
 }
 
 test {
@@ -68,6 +71,7 @@ test {
 }
 
 graalvmNative {
+
     binaries {
         main {
             buildArgs.add('-H:+UnlockExperimentalVMOptions')

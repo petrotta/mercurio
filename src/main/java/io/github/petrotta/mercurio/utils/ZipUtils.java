@@ -1,4 +1,4 @@
-package mercurio.utils;
+package io.github.petrotta.mercurio.utils;
 
 import java.io.*;
 import java.nio.file.Files;

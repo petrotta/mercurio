@@ -1,9 +1,10 @@
-package mercurio;
+package io.github.petrotta.mercurio.commands;
 
-import mercurio.build.BuildSystem;
-import mercurio.build.Depend;
-import mercurio.build.PackageManifest;
-import mercurio.utils.ZipUtils;
+import io.github.petrotta.mercurio.build.BuildSystem;
+import io.github.petrotta.mercurio.build.xml.PackageManifest;
+import io.github.petrotta.mercurio.utils.ZipUtils;
+import io.github.petrotta.mercurio.Application;
+
 import picocli.CommandLine;
 
 import java.io.File;
@@ -12,28 +13,29 @@ import java.util.concurrent.Callable;
         description = "Packages up a sysml package")
 
 
-public class Package implements Callable<Integer> {
+public class Package extends ProjectCommand implements Callable<Integer> {
 
     @CommandLine.Option(names = { "-dir", "--dir" }, paramLabel = "SOURCE", description = "the source files or directories", arity = "0..1")
     private File sourceDir;
+
+    @CommandLine.Option(names = { "-verbose", "-v" }, paramLabel = "VERBOSE", description = "turn on verbose output", arity = "0..1", defaultValue = "false")
+    private boolean verbose;
 
     @Override
     public Integer call() throws Exception {
 
         File userDir = new File(System.getProperty("user.dir"));
-        //File curDir = null;
         if(sourceDir == null) {
             sourceDir = userDir;
-            //curDir = userDir;
         }
 
-        PackageManifest pkgFile = BuildSystem.readBuildFile(new File(sourceDir, Application.PACKAGE_XML));
+        PackageManifest pkgFile = BuildSystem.readBuildFile(new File(sourceDir, Application.PACKAGE_MANIFEST_FILENAME));
         System.out.println("org: " + pkgFile.getOrg() + ", project: " +  pkgFile.getProject() + ", version: "+ pkgFile.getVersion());
 
 
-        for(Depend d : pkgFile.getDepend()) {
-             System.out.println("Dep: " + d.getLocation());
-        }
+//        for(String d : pkgFile.getDepend()) {
+//             System.out.println("Dep: " + d);
+//        }
 
 
         System.out.println(Application.getProperties());
