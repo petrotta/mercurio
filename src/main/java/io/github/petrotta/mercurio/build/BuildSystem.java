@@ -1,6 +1,7 @@
 package io.github.petrotta.mercurio.build;
 
 import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import io.github.petrotta.mercurio.Application;
 import io.github.petrotta.mercurio.build.xml.PackageManifest;
@@ -27,8 +28,8 @@ public class BuildSystem {
          return pkg;
     }
     public static void writeBuildFile(PackageManifest pkg, File file) throws IOException, SAXException {
-        DefaultPrettyPrinter prettyPrinter = new DefaultPrettyPrinter();
-        XmlMapper xmlMapper = XmlMapper.builder().defaultPrettyPrinter(prettyPrinter).build();
+        XmlMapper xmlMapper = new XmlMapper();
+        xmlMapper.enable(SerializationFeature.INDENT_OUTPUT);
         xmlMapper.writeValue(file, pkg);
 
     }

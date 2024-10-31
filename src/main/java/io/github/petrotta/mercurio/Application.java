@@ -27,6 +27,13 @@ public class Application {
 
     public static void main(String... args) {
 
+        CommandLine commandLine = createCommandLine();
+
+        int exitCode = commandLine.execute(args );
+        System.exit(exitCode);
+    }
+
+    public static CommandLine createCommandLine() {
         CommandLine commandLine = new CommandLine(new Application())
                 .addSubcommand("validate",  new Validate())
                 .addSubcommand("eval",      new Evaluate())
@@ -35,9 +42,7 @@ public class Application {
                 .addSubcommand("package",   new Package())
                 .addSubcommand("run",       new Run())
                 .addSubcommand("inspect",   new Inspect());
-
-        int exitCode = commandLine.execute(args );
-        System.exit(exitCode);
+        return commandLine;
     }
 
     public static Properties getProperties() throws IOException {
@@ -112,8 +117,11 @@ public class Application {
     static void createDefaultLibrary(File libDir) throws IOException {
 
         InputStream inStream = Application.class.getClassLoader().getResourceAsStream(RESOURCE_STDLIB_ZIP);
-        ZipUtils.unzip(inStream, libDir.toPath());
-
+        if(inStream == null) {
+            console("Failed to find standard libraries as part of this distribution.");
+        } else {
+            ZipUtils.unzip(inStream, libDir.toPath());
+        }
     }
 
 

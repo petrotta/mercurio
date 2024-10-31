@@ -2,6 +2,9 @@ package io.github.petrotta.mercurio.commands;
 
 import io.github.petrotta.mercurio.build.Project;
 
+
+//import org.graalvm.polyglot.Context;
+//import org.graalvm.polyglot.Value;
 import picocli.CommandLine;
 
 import java.io.File;
@@ -23,14 +26,24 @@ public class Run extends ProjectCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
 
-        Project project = initProject(sourceDir, libDir, verbose);
-
-//        Binding binding = new Binding();
-//       // binding.setVariable("foo", new Integer(2));
-//        GroovyShell shell = new GroovyShell(binding);
+//       // Project project = initProject(sourceDir, libDir, verbose);
 //
-//        Object value = shell.evaluate("1+1");
-//        System.out.println(value);
+//        try (Context context = Context.create()) {
+//            Value function = context.eval("js", "x => x+1");
+//            assert function.canExecute();
+//            int x = function.execute(41).asInt();
+//            assert x == 42;
+//        }
+//
+//        try (Context context = Context.create()) {
+//            Value function = context.eval("python", "print('Hello Python!')");
+//            //assert function.canExecute();
+//            //int x = function.execute().asInt();
+//            //assert x == 42;
+//            //int x = function.execute(41).asInt();
+//            //assert x == 42;
+//        }
+
 
         return 0;
     }

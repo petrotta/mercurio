@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'application'
     id 'org.graalvm.buildtools.native' version '0.10.3'
+    //id 'com.github.johnrengelman.shadow' version '7.1.2'
 }
 
 application {
@@ -32,31 +33,40 @@ repositories {
 
 
 }
+ext {
+    version_sysml="0.46.0-SNAPSHOT"
+    graalvm_polyglot_version="24.1.1"
+    version_xtext='2.34.0'
+    version_picocli="4.7.6"
+}
+
+
 
 dependencies {
-    testImplementation platform('org.junit:junit-bom:5.10.0')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
+//    testImplementation platform('org.junit:junit-bom:5.10.0')
+//    testImplementation 'org.junit.jupiter:junit-jupiter'
 
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.3'
 
-    implementation 'info.picocli:picocli:4.7.6'
-    annotationProcessor 'info.picocli:picocli-codegen:4.7.6'
+    implementation 'info.picocli:picocli:'+version_picocli
+    annotationProcessor 'info.picocli:picocli-codegen:'+version_picocli
+//    implementation 'info.picocli:picocli-shell-jline2:'+version_picocli
 
-    implementation 'org.omg.sysml:org.omg.sysml:0.46.0-SNAPSHOT'
-    implementation 'org.omg.sysml:org.omg.sysml.interactive:0.46.0-SNAPSHOT:all' // all needed for json serialization
+//    implementation 'org.graalvm.polyglot:polyglot:'+graalvm_polyglot_version
+//    implementation 'org.graalvm.polyglot:js:'+ graalvm_polyglot_version
+//    implementation 'org.graalvm.polyglot:python:'+ graalvm_polyglot_version
 
-
-
+    implementation 'org.omg.sysml:org.omg.sysml:'+version_sysml
+    implementation 'org.omg.sysml:org.omg.sysml.interactive:'+version_sysml+':all' // all needed for json serialization
 
     // Eclipse products
-    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext', version: '2.34.0'
-    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.common.types', version: '2.34.0'
-    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.xbase', version: '2.34.0'
+    implementation 'org.eclipse.xtext:org.eclipse.xtext:'+  version_xtext
+    implementation 'org.eclipse.xtext:org.eclipse.xtext.common.types:'+ version_xtext
+    implementation 'org.eclipse.xtext:org.eclipse.xtext.xbase:'+ version_xtext
 
-
-//    implementation 'org.codehaus.groovy:groovy-all:3.0.21'
 
     implementation 'org.eclipse.jgit:org.eclipse.jgit:3.5.0.201409260305-r'
-
     implementation  'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.11.1'
 
     compileOnly 'org.projectlombok:lombok:1.18.34'
@@ -81,6 +91,8 @@ graalvmNative {
             buildArgs.add('-H:Log=registerResource:verbose');
             buildArgs.add('--enable-url-protocols=https');
             buildArgs.add('--enable-url-protocols=http');
+//            buildArgs.add('-H:+PlatformInterfaceCompatibilityMode');
+
 
         }
     }

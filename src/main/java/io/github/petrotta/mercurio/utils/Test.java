@@ -1,23 +1,15 @@
-
+package io.github.petrotta.mercurio.utils;
 
 import io.github.petrotta.mercurio.Application;
-import io.github.petrotta.mercurio.commands.Validate;
-import io.github.petrotta.mercurio.commands.Version;
-import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
 import java.io.File;
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.concurrent.Callable;
 
-import static org.junit.jupiter.api.Assertions.fail;
-
-public class TestCommands {
-
+public class Test {
     private static final String PILOT_SAMPLES = "C:/dev/git/SysML-v2-Pilot-Implementation/sysml/src";
 
-    @Test
+
+
     public void runTests() {
 
         runTest( Application.createCommandLine() , new String[] {"version"});
@@ -59,6 +51,5 @@ public class TestCommands {
 
         assert (exitCode == 0);
     }
-
 
 }
