@@ -1,6 +1,7 @@
 gradle.properties
 .idea
 
+tmp
 
 .gradle
 **/build/

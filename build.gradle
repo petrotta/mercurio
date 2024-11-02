@@ -1,17 +1,14 @@
 plugins {
     id 'java'
     id 'application'
-
-    id 'org.graalvm.buildtools.native' version '0.10.3'
-//    id 'com.gluonhq.gluonfx-gradle-plugin' version '1.0.24'
-
+    id 'edu.sc.seis.launch4j' version '3.0.6'
 }
 
 application {
-    mainClass = 'mercurio.Application'
+    mainClass = 'io.github.petrotta.mercurio.Application'
 }
-group = 'org.mercurio'
-version = '1.0-SNAPSHOT'
+group = 'io.github.petrotta'
+version = '1.0.0'
 
 repositories {
 
@@ -27,57 +24,60 @@ repositories {
         url = uri("https://repo.eclipse.org")
     }
 
-
     mavenLocal()
     mavenCentral()
     maven { url 'https://repo.gradle.org/gradle/libs-releases' }
-
+    maven { url 'https://repo.maven.apache.org/maven2/' }
 }
 
+
+ext {
+    version_sysml="0.46.0-SNAPSHOT"
+    graalvm_polyglot_version="24.1.1"
+    version_xtext='2.34.0'
+    version_picocli="4.7.6"
+}
+
+
+
 dependencies {
-    testImplementation platform('org.junit:junit-bom:5.10.0')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    implementation 'info.picocli:picocli:4.7.6'
-    annotationProcessor 'info.picocli:picocli-codegen:4.7.6'
 
-    implementation 'org.omg.sysml:org.omg.sysml:0.46.0-SNAPSHOT'
-    implementation 'org.omg.sysml:org.omg.sysml.interactive:0.46.0-SNAPSHOT:all' // all needed for json serialization
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.3'
 
+    implementation 'info.picocli:picocli:'+version_picocli
+    annotationProcessor 'info.picocli:picocli-codegen:'+version_picocli
+    implementation 'info.picocli:picocli-shell-jline2:'+version_picocli
 
+    implementation 'org.omg.sysml:org.omg.sysml:'+version_sysml
+    implementation 'org.omg.sysml:org.omg.sysml.interactive:'+version_sysml+':all' // all needed for json serialization
 
+    implementation 'org.eclipse.xtext:org.eclipse.xtext:'+  version_xtext
 
     // Eclipse products
-    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext', version: '2.34.0'
-    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.common.types', version: '2.34.0'
-    implementation group: 'org.eclipse.xtext', name: 'org.eclipse.xtext.xbase', version: '2.34.0'
+    implementation 'org.eclipse.xtext:org.eclipse.xtext:'+  version_xtext
+    implementation('org.eclipse.xtext:org.eclipse.xtext.util:2.34.0')
+    implementation 'org.eclipse.xtext:org.eclipse.xtext.common.types:'+ version_xtext
+    implementation 'org.eclipse.xtext:org.eclipse.xtext.xbase:'+ version_xtext
 
+    implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
 
+    implementation  'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.11.1'
 
-//    compileOnly 'org.osgi:org.osgi.service.cm:1.6.1'
+    compileOnly 'org.projectlombok:lombok:1.18.34'
+    annotationProcessor 'org.projectlombok:lombok:1.18.34'
 
+//    testCompileOnly 'org.projectlombok:lombok:1.18.34'
+//    testAnnotationProcessor 'org.projectlombok:lombok:1.18.34'
 }
 
 test {
     useJUnitPlatform()
 }
 
-graalvmNative {
-    binaries {
-        main {
-            buildArgs.add('-H:+UnlockExperimentalVMOptions')
-            buildArgs.add('-H:+AddAllCharsets')
-            buildArgs.add('-H:Log=registerResource:verbose');
-           // buildArgs.add('-H:-Ob')
 
-           // buildArgs.add('-H:IncludeResources=\'.*/Resource.*xmi\$\'')
-
-            //buildArgs.add("-g")
-        }
-    }
-    binaries.all {
-        resources.autodetect()
-    }
-
+launch4j {
+    mainClassName = 'io.github.petrotta.mercurio.Application'
+   // icon = "${projectDir}/icons/myApp.ico"
+    headerType= 'console'
 }
-
-

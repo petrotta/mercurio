@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Created with Liquid Technologies Online Tools 1.0 (https://www.liquid-technologies.com) -->
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:element name="package">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="org" type="xs:string" />
+                <xs:element name="project" type="xs:string" />
+                <xs:element name="version" type="xs:string" />
+                <xs:element name="description" type="xs:string" />
+                <xs:element name="maintainer">
+                    <xs:complexType>
+                        <xs:simpleContent>
+                            <xs:extension base="xs:string">
+                                <xs:attribute name="email" type="xs:string" use="required" />
+                            </xs:extension>
+                        </xs:simpleContent>
+                    </xs:complexType>
+                </xs:element>
+                <xs:element name="license" type="xs:string" />
+                <xs:element name="url" type="xs:string" />
+                <xs:element name="author" type="xs:string" />
+                <xs:element maxOccurs="unbounded" name="depend" type="xs:string" />
+            </xs:sequence>
+            <xs:attribute name="format" type="xs:unsignedByte" use="required" />
+        </xs:complexType>
+    </xs:element>
+</xs:schema>
