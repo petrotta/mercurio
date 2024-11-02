@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.concurrent.Callable;
@@ -18,7 +19,7 @@ public class TestCommands {
     private static final String PILOT_SAMPLES = "C:/dev/git/SysML-v2-Pilot-Implementation/sysml/src";
 
     @Test
-    public void runTests() {
+    public void runTests() throws IOException {
 
         runTest( Application.createCommandLine() , new String[] {"version"});
         runTest( Application.createCommandLine() , new String[] {"validate", "-dir", "tmp/test1"});

@@ -4,13 +4,14 @@ import io.github.petrotta.mercurio.Application;
 import picocli.CommandLine;
 
 import java.io.File;
+import java.io.IOException;
 
 public class Test {
     private static final String PILOT_SAMPLES = "C:/dev/git/SysML-v2-Pilot-Implementation/sysml/src";
 
 
 
-    public void runTests() {
+    public void runTests() throws IOException {
 
         runTest( Application.createCommandLine() , new String[] {"version"});
         runTest( Application.createCommandLine() , new String[] {"validate", "-dir", "tmp/test1"});

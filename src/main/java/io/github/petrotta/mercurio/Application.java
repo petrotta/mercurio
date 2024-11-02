@@ -2,9 +2,13 @@ package io.github.petrotta.mercurio;
 
 
 import io.github.petrotta.mercurio.commands.*;
+//import io.github.petrotta.mercurio.interactive.CliCommands;
+
+import io.github.petrotta.mercurio.interactive.CliCommands;
 import io.github.petrotta.mercurio.utils.ZipUtils;
 
 import io.github.petrotta.mercurio.commands.Package;
+import jline.console.ConsoleReader;
 import picocli.CommandLine;
 
 import java.io.*;
@@ -25,7 +29,7 @@ public class Application {
     public static final String RESOURCE_STDLIB_ZIP = "mercurio/sysml.library.zip";
 
 
-    public static void main(String... args) {
+    public static void main(String... args) throws IOException {
 
         CommandLine commandLine = createCommandLine();
 
@@ -33,7 +37,7 @@ public class Application {
         System.exit(exitCode);
     }
 
-    public static CommandLine createCommandLine() {
+    public static CommandLine createCommandLine() throws IOException {
         CommandLine commandLine = new CommandLine(new Application())
                 .addSubcommand("validate",  new Validate())
                 .addSubcommand("eval",      new Evaluate())
@@ -41,7 +45,8 @@ public class Application {
                 .addSubcommand("create",    new Create())
                 .addSubcommand("package",   new Package())
                 .addSubcommand("run",       new Run())
-                .addSubcommand("inspect",   new Inspect());
+                .addSubcommand("inspect",   new Inspect())
+                .addSubcommand("interactive", new CliCommands(new ConsoleReader()));
         return commandLine;
     }
 
