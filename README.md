@@ -3,7 +3,8 @@ A SysMLv2 command line interpreter that implements the OMG emerging reusable ass
 The major features:
 * Inspection of SysML libraries with commands like `mercurio.exe inspect -dir sysml_folder`
 * Creation of a SysML library with `mercurio.exe create my_new_module`
-* Ability to use modular packages: SysML that includes a package description and dependencies:
+* Ability to use modular packages -- SysML that includes a package description and dependencies:
+~~~
       <package>
         <org>Example Org</org>
         <project>Project 1</project>
@@ -11,7 +12,7 @@ The major features:
         <description/>
         <dependencies/>
       </package>
-
+~~~
  
 
 Compilation: 
