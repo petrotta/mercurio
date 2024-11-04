@@ -1,7 +1,9 @@
 plugins {
     id 'java'
     id 'application'
-    id 'edu.sc.seis.launch4j' version '3.0.6'
+   // id 'edu.sc.seis.launch4j' version '3.0.6'
+    id("dev.hydraulic.conveyor") version "1.5"
+
 }
 
 application {
@@ -64,6 +66,8 @@ dependencies {
 
     implementation  'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.11.1'
 
+    implementation 'org.python:jython:2.7.4'
+
     compileOnly 'org.projectlombok:lombok:1.18.34'
     annotationProcessor 'org.projectlombok:lombok:1.18.34'
 
@@ -76,8 +80,39 @@ test {
 }
 
 
-launch4j {
-    mainClassName = 'io.github.petrotta.mercurio.Application'
-   // icon = "${projectDir}/icons/myApp.ico"
-    headerType= 'console'
+//launch4j {
+//    mainClassName = 'io.github.petrotta.mercurio.Application'
+//   // icon = "${projectDir}/icons/myApp.ico"
+//    headerType= 'console'
+//}
+
+task copyDeps(type: Copy) {
+    from(sourceSets.main.runtimeClasspath)
+    into('build/requiredjars/')
+}
+
+
+
+tasks.register("conveyorMakeApp", Exec) {
+    group = "conveyor"
+    var dir = layout.buildDirectory.dir("packages")
+    outputs.dir(dir)
+    commandLine = ["conveyor", "make", "--output-dir", dir.get(), "app"]
+    dependsOn("jar", "copyDeps")
+}
+tasks.register("conveyorMakeSite", Exec) {
+
+    group = "conveyor"
+    var dir = layout.buildDirectory.dir("packages")
+    outputs.dir(dir)
+    commandLine = ["conveyor", "make", "--output-dir", dir.get(), "site"]
+    dependsOn("conveyorMakeApp")
+}
+tasks.register("conveyorMakeCopiedSite", Exec) {
+    group = "conveyor"
+    var dir = layout.buildDirectory.dir("packages")
+    outputs.dir(dir)
+    //environment("conveyor_key", ${env.conveyor_key})
+    commandLine = ["conveyor", "make", "copied-site"]
+    dependsOn("conveyorMakeSite")
 }
