@@ -1,8 +1,11 @@
 plugins {
     id 'java'
     id 'application'
-   // id 'edu.sc.seis.launch4j' version '3.0.6'
+//    id 'edu.sc.seis.launch4j' version '3.0.6'
     id("dev.hydraulic.conveyor") version "1.5"
+
+
+
 
 }
 
@@ -10,7 +13,11 @@ application {
     mainClass = 'io.github.petrotta.mercurio.Application'
 }
 group = 'io.github.petrotta'
-version = '1.0.0'
+version = '1.0.2'
+
+ext {
+    app_version = version
+}
 
 repositories {
 
@@ -44,6 +51,7 @@ ext {
 
 dependencies {
 
+    implementation project(':mercurio-plugin')
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.3'
 
@@ -54,25 +62,28 @@ dependencies {
     implementation 'org.omg.sysml:org.omg.sysml:'+version_sysml
     implementation 'org.omg.sysml:org.omg.sysml.interactive:'+version_sysml+':all' // all needed for json serialization
 
-    implementation 'org.eclipse.xtext:org.eclipse.xtext:'+  version_xtext
 
     // Eclipse products
-    implementation 'org.eclipse.xtext:org.eclipse.xtext:'+  version_xtext
-    implementation('org.eclipse.xtext:org.eclipse.xtext.util:2.34.0')
-    implementation 'org.eclipse.xtext:org.eclipse.xtext.common.types:'+ version_xtext
-    implementation 'org.eclipse.xtext:org.eclipse.xtext.xbase:'+ version_xtext
+//    implementation 'org.eclipse.xtext:org.eclipse.xtext:'+  version_xtext
+//    implementation('org.eclipse.xtext:org.eclipse.xtext.util:2.34.0')
+//    implementation 'org.eclipse.xtext:org.eclipse.xtext.common.types:'+ version_xtext
+//    implementation 'org.eclipse.xtext:org.eclipse.xtext.xbase:'+ version_xtext
 
     implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
 
-    implementation  'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.11.1'
+    implementation  'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.17.1'
+
 
     implementation 'org.python:jython:2.7.4'
 
     compileOnly 'org.projectlombok:lombok:1.18.34'
     annotationProcessor 'org.projectlombok:lombok:1.18.34'
 
-//    testCompileOnly 'org.projectlombok:lombok:1.18.34'
-//    testAnnotationProcessor 'org.projectlombok:lombok:1.18.34'
+
+
+    // https://mvnrepository.com/artifact/com.google.guava/guava
+    implementation 'com.google.guava:guava:11.0.2'
+
 }
 
 test {

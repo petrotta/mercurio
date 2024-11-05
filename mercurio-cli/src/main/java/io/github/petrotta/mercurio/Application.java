@@ -5,10 +5,14 @@ import io.github.petrotta.mercurio.commands.*;
 //import io.github.petrotta.mercurio.interactive.CliCommands;
 
 import io.github.petrotta.mercurio.interactive.CliCommands;
+import io.github.petrotta.mercurio.utils.Logging;
 import io.github.petrotta.mercurio.utils.ZipUtils;
 
 import io.github.petrotta.mercurio.commands.Package;
 import jline.console.ConsoleReader;
+import org.apache.log4j.BasicConfigurator;
+import org.apache.log4j.ConsoleAppender;
+import org.apache.log4j.Logger;
 import picocli.CommandLine;
 
 import java.io.*;
@@ -16,7 +20,8 @@ import java.util.Properties;
 
 @CommandLine.Command()
 public class Application {
-    public static final String APP_VERSION = "0.0.1";
+    public static final String APP_VERSION = "1.0.2";
+
     private static final String APP_LOCATION = ".mercurio";
 
     public static final String REPOS_DIR =      "repos";
@@ -27,9 +32,16 @@ public class Application {
     public static final String PACKAGE_MANIFEST_FILENAME = "package.xml";
 
     public static final String RESOURCE_STDLIB_ZIP = "mercurio/sysml.library.zip";
+    private static final String PLUGINS_DIR = "plugins" ;
 
 
+    public Application() {
+
+    }
     public static void main(String... args) throws IOException {
+
+        ConsoleAppender ca = Logging.createConsoleAppender();
+        Logger.getRootLogger().addAppender(ca);
 
         CommandLine commandLine = createCommandLine();
 
@@ -102,6 +114,11 @@ public class Application {
         return dir;
     }
 
+    public static File getPluginsDir() {
+        File dir = new File(getAppDir(), PLUGINS_DIR);
+        if(!dir.isDirectory()) { dir.mkdir();}
+        return dir;
+    }
     public static File getStdLibDir() throws IOException {
         File libDir = new File(getAppDir(), STD_LIB_DIR);
 

@@ -5,6 +5,7 @@ import io.github.petrotta.mercurio.build.Project;
 
 //import org.graalvm.polyglot.Context;
 //import org.graalvm.polyglot.Value;
+import io.github.petrotta.mercurio.plugins.PluginManager;
 import picocli.CommandLine;
 
 import java.io.File;
@@ -25,6 +26,9 @@ public class Run extends ProjectCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+
+        PluginManager mgr = new PluginManager();
+        mgr.index();
 
 //       // Project project = initProject(sourceDir, libDir, verbose);
 //
