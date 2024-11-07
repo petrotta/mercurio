@@ -1,27 +1,22 @@
 package io.github.petrotta.mercurio.plugins;
 
-import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import io.github.petrotta.mercurio.Application;
-import org.xml.sax.SAXException;
-
-
+import io.github.petrotta.mercurio.build.Project;
+import io.github.petrotta.mercurio.utils.ZipUtils;
 import java.io.*;
 import java.lang.annotation.Annotation;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.nio.file.*;
 import java.util.*;
-import java.util.stream.Collectors;
-
 import static io.github.petrotta.mercurio.Application.console;
 
 
 
 public class PluginUtils {
 
-    Map<String, Class> classes = new HashMap();
+    Map<String, Plugin> classes = new HashMap<>();
 
-    public Class getPluginClass(String key) {
+    public Plugin getPluginClass(String key) {
         return classes.get(key);
     }
 
@@ -31,37 +26,53 @@ public class PluginUtils {
 
         File pluginsDir = Application.getPluginsDir();
 
+        File[] fileList = pluginsDir.listFiles();
 
-        for(File pluginDirs : pluginsDir.listFiles()) {
+        for(File pluginDirs : fileList!=null ? fileList : new File[0]) {
+            File libs = new File(pluginDirs, "libs");
+            if(pluginDirs.isDirectory() && libs.isDirectory()) {
 
-            if(pluginDirs.isDirectory()) {
-                File libs = new File(pluginDirs, "libs");
-                File descriptors = new File(pluginDirs, "plugin.xml");
-                PluginXML pluginXML = readPluginXMLFile(descriptors);
+                //File descriptors = new File(pluginDirs, "plugin.xml");
+                //PluginXML pluginXML = readPluginXMLFile(descriptors);
 
                 for(File jar : libs.listFiles((file)->{return file.isFile() && file.getName().endsWith(".jar");})) {
-                    URLClassLoader child = new URLClassLoader(new URL[]{jar.toURI().toURL()}, null);
-                    Class classToLoad = Class.forName(pluginXML.getEntryClass(), true, child);
-                    console(classToLoad.toString());
+                    URLClassLoader child = new URLClassLoader(new URL[]{jar.toURI().toURL()}, this.getClass().getClassLoader());
+                    //Class classToLoad = Class.forName(pluginXML.getEntryClass(), true, child);
+                    //console(classToLoad.toString());
 
-                    if(classToLoad.isAnnotationPresent(PluginAnnotation.class)) {
-                        for(Annotation annotation : classToLoad.getAnnotations()) {
-                            if(annotation.annotationType().equals(PluginAnnotation.class)) {
-                                PluginAnnotation pluginAnnotation = (PluginAnnotation) annotation;
-                                classes.put(pluginAnnotation.name(), classToLoad);
+                    List<String> allClassesInJar = ZipUtils.getAllClassesInJar(jar);
+                    for(String className : allClassesInJar) {
+                        Class classToLoad = child.loadClass(className);
+                        if(classToLoad.isAnnotationPresent(PluginAnnotation.class) && Plugin.class.isAssignableFrom(classToLoad)) {
+                            for(Annotation annotation : classToLoad.getAnnotations()) {
+                                if(annotation.annotationType().equals(PluginAnnotation.class)) {
+                                    PluginAnnotation pluginAnnotation = (PluginAnnotation) annotation;
+
+                                    console("Loaded plugin " + classToLoad.getName());
+                                    Plugin plugin = (Plugin) classToLoad.getConstructor().newInstance();
+
+                                    classes.put(pluginAnnotation.name(), plugin);
+                                    plugin.init();
+                                }
                             }
                         }
                     }
+
+
                 }
             }
         }
     }
 
-    public static PluginXML readPluginXMLFile(File file) throws IOException, SAXException {
-        XmlMapper xmlMapper = new XmlMapper();
-        PluginXML pluginXML = xmlMapper.readValue(file, PluginXML.class);
-        return pluginXML;
+    public void run(String task, Project project) {
+        this.getPluginClass(task).run(project);
     }
+
+//    public static PluginXML readPluginXMLFile(File file) throws IOException, SAXException {
+//        XmlMapper xmlMapper = new XmlMapper();
+//        PluginXML pluginXML = xmlMapper.readValue(file, PluginXML.class);
+//        return pluginXML;
+//    }
 
 
 

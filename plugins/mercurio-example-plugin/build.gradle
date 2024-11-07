@@ -26,3 +26,12 @@ dependencies {
     //implementation 'org.pf4j:pf4j:3.12.1'
 }
 
+task deployPlugin(type: Copy) {
+
+    def userHome = System.getProperty("user.home")
+
+    from(jar) // Source JAR file
+
+    into "$userHome/.mercurio/plugins/mercurio-example-plugin/libs"  // Destination folder
+
+}
