@@ -1,22 +1,29 @@
 package io.github.petrotta.mercurio;
 
 
-import io.github.petrotta.mercurio.commands.*;
+//import io.github.petrotta.mercurio.commands.*;
 //import io.github.petrotta.mercurio.interactive.CliCommands;
 
-import io.github.petrotta.mercurio.interactive.CliCommands;
-import io.github.petrotta.mercurio.utils.ZipUtils;
+//import io.github.petrotta.mercurio.interactive.CliCommands;
+//import io.github.petrotta.mercurio.utils.Logging;
+//import io.github.petrotta.mercurio.utils.ZipUtils;
+//
+//import io.github.petrotta.mercurio.commands.Package;
+//import jline.console.ConsoleReader;
+//import org.apache.log4j.BasicConfigurator;
+//import org.apache.log4j.ConsoleAppender;
+//import org.apache.log4j.Logger;
+//import picocli.CommandLine;
 
-import io.github.petrotta.mercurio.commands.Package;
-import jline.console.ConsoleReader;
-import picocli.CommandLine;
+import io.github.petrotta.mercurio.utils.ZipUtils;
 
 import java.io.*;
 import java.util.Properties;
 
-@CommandLine.Command()
+
 public class Application {
-    public static final String APP_VERSION = "0.0.1";
+    public static final String APP_VERSION = "1.0.2";
+
     private static final String APP_LOCATION = ".mercurio";
 
     public static final String REPOS_DIR =      "repos";
@@ -27,28 +34,13 @@ public class Application {
     public static final String PACKAGE_MANIFEST_FILENAME = "package.xml";
 
     public static final String RESOURCE_STDLIB_ZIP = "mercurio/sysml.library.zip";
+    private static final String PLUGINS_DIR = "plugins" ;
 
 
-    public static void main(String... args) throws IOException {
+    public Application() {
 
-        CommandLine commandLine = createCommandLine();
-
-        int exitCode = commandLine.execute(args );
-        System.exit(exitCode);
     }
 
-    public static CommandLine createCommandLine() throws IOException {
-        CommandLine commandLine = new CommandLine(new Application())
-                .addSubcommand("validate",  new Validate())
-                .addSubcommand("eval",      new Evaluate())
-                .addSubcommand("version",   new Version())
-                .addSubcommand("create",    new Create())
-                .addSubcommand("package",   new Package())
-                .addSubcommand("run",       new Run())
-                .addSubcommand("inspect",   new Inspect())
-                .addSubcommand("interactive", new CliCommands(new ConsoleReader()));
-        return commandLine;
-    }
 
     public static Properties getProperties() throws IOException {
 
@@ -102,6 +94,11 @@ public class Application {
         return dir;
     }
 
+    public static File getPluginsDir() {
+        File dir = new File(getAppDir(), PLUGINS_DIR);
+        if(!dir.isDirectory()) { dir.mkdir();}
+        return dir;
+    }
     public static File getStdLibDir() throws IOException {
         File libDir = new File(getAppDir(), STD_LIB_DIR);
 

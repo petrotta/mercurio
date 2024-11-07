@@ -1,0 +1,129 @@
+plugins {
+    id 'java'
+    id 'application'
+//    id 'edu.sc.seis.launch4j' version '3.0.6'
+    id("dev.hydraulic.conveyor") version "1.5"
+
+
+
+
+}
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+application {
+    mainClass = 'io.github.petrotta.mercurio.CLI'
+}
+group = 'io.github.petrotta'
+version = '1.0.2'
+
+ext {
+    app_version = version
+}
+
+repositories {
+
+    maven {
+        name = "GitHubPackages"
+        url = uri("https://maven.pkg.github.com/Systems-Modeling/SysML-v2-Pilot-Implementation")
+        credentials {
+            username = project.findProperty("gpr.user") ?: System.getenv("USERNAME")
+            password = project.findProperty("gpr.key") ?: System.getenv("TOKEN")
+        }
+    }
+    maven {
+        url = uri("https://repo.eclipse.org")
+    }
+
+    mavenLocal()
+    mavenCentral()
+    maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+    maven { url 'https://repo.maven.apache.org/maven2/' }
+}
+
+
+ext {
+    version_sysml="0.46.0-SNAPSHOT"
+    graalvm_polyglot_version="24.1.1"
+    version_xtext='2.34.0'
+    version_picocli="4.7.6"
+}
+
+
+
+dependencies {
+
+
+    implementation project(':mercurio-core')
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.3'
+
+    implementation 'info.picocli:picocli:'+version_picocli
+    annotationProcessor 'info.picocli:picocli-codegen:'+version_picocli
+    implementation 'info.picocli:picocli-shell-jline2:'+version_picocli
+
+
+    implementation 'org.omg.sysml:org.omg.sysml:'+version_sysml
+    implementation 'org.omg.sysml:org.omg.sysml.interactive:'+version_sysml+':all' // all needed for json serialization
+
+
+
+
+// https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core
+    implementation 'org.apache.logging.log4j:log4j-core:2.24.1'
+
+    implementation 'org.python:jython:2.7.4'
+
+    compileOnly 'org.projectlombok:lombok:1.18.34'
+    annotationProcessor 'org.projectlombok:lombok:1.18.34'
+
+    implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
+
+    // https://mvnrepository.com/artifact/com.google.guava/guava
+//    implementation 'com.google.guava:guava:11.0.2'
+
+}
+
+test {
+    useJUnitPlatform()
+}
+
+
+//launch4j {
+//    mainClassName = 'io.github.petrotta.mercurio.Application'
+//   // icon = "${projectDir}/icons/myApp.ico"
+//    headerType= 'console'
+//}
+
+task copyDeps(type: Copy) {
+    from(sourceSets.main.runtimeClasspath)
+    into('build/requiredjars/')
+}
+
+
+
+tasks.register("conveyorMakeApp", Exec) {
+    group = "conveyor"
+    var dir = layout.buildDirectory.dir("packages")
+    outputs.dir(dir)
+    commandLine = ["conveyor", "make", "--output-dir", dir.get(), "app"]
+    dependsOn("jar", "copyDeps")
+}
+tasks.register("conveyorMakeSite", Exec) {
+
+    group = "conveyor"
+    var dir = layout.buildDirectory.dir("packages")
+    outputs.dir(dir)
+    commandLine = ["conveyor", "make", "--output-dir", dir.get(), "site"]
+    dependsOn("conveyorMakeApp")
+}
+tasks.register("conveyorMakeCopiedSite", Exec) {
+    group = "conveyor"
+    var dir = layout.buildDirectory.dir("packages")
+    outputs.dir(dir)
+    //environment("conveyor_key", ${env.conveyor_key})
+    commandLine = ["conveyor", "make", "copied-site"]
+    dependsOn("conveyorMakeSite")
+}

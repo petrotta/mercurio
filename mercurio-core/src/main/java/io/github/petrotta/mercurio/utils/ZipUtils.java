@@ -1,11 +1,18 @@
 package io.github.petrotta.mercurio.utils;
 
 import java.io.*;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
+
+import static io.github.petrotta.mercurio.Application.console;
 
 public class ZipUtils {
 
@@ -70,4 +77,26 @@ public class ZipUtils {
         }
         fis.close();
     }
+
+    // path starts with / for root
+    public static List<Path> listFilesForZip(Path zipFilePath, String path, int depth) throws IOException {
+//
+        List<Path> result = new ArrayList<>();
+        try (java.nio.file.FileSystem zipFileSystem = FileSystems.newFileSystem(zipFilePath, (ClassLoader) null)) {
+            Path root = zipFileSystem.getPath(path);
+
+            try (Stream<Path> paths = Files.walk(root, depth)) {
+                paths.forEach(e-> {
+                    result.add(e);
+                    //console("a: " + e.toString());
+                    //console("name: " + e.getClass().getName());
+                });
+            }
+        }
+        return result;
+
+    }
+
+
+
 }

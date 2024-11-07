@@ -9,6 +9,7 @@ gradle
 gradlew
 gradlew.bat
 
+.jython_cache
 
 build/
 !gradle/wrapper/gradle-wrapper.jar
