@@ -1,6 +1,7 @@
 
 
 import io.github.petrotta.mercurio.Application;
+import io.github.petrotta.mercurio.CLI;
 import io.github.petrotta.mercurio.commands.Validate;
 import io.github.petrotta.mercurio.commands.Version;
 import org.junit.jupiter.api.Test;
@@ -21,25 +22,25 @@ public class TestCommands {
     @Test
     public void runTests() throws IOException {
 
-        runTest( Application.createCommandLine() , new String[] {"version"});
-        runTest( Application.createCommandLine() , new String[] {"validate", "-dir", "tmp/test1"});
-        runTest( Application.createCommandLine() , new String[] {"validate", "-dir", PILOT_SAMPLES+ "/examples/Mass Roll-up Example"});
-        runTest( Application.createCommandLine() , new String[] {"validate", "-dir", PILOT_SAMPLES});
+        runTest( CLI.createCommandLine() , new String[] {"version"});
+        runTest( CLI.createCommandLine() , new String[] {"validate", "-dir", "tmp/test1"});
+        runTest( CLI.createCommandLine() , new String[] {"validate", "-dir", PILOT_SAMPLES+ "/examples/Mass Roll-up Example"});
+        runTest( CLI.createCommandLine() , new String[] {"validate", "-dir", PILOT_SAMPLES});
 
-        runTest( Application.createCommandLine() , new String[] {"inspect", "-dir", "tmp/test1"});
+        runTest( CLI.createCommandLine() , new String[] {"inspect", "-dir", "tmp/test1"});
 
-        runTest( Application.createCommandLine() , new String[] {"inspect", "-dir", PILOT_SAMPLES});
-        runTest( Application.createCommandLine() , new String[] {"inspect", "-dir", PILOT_SAMPLES+ "/examples/Mass Roll-up Example"});
+        runTest( CLI.createCommandLine() , new String[] {"inspect", "-dir", PILOT_SAMPLES});
+        runTest( CLI.createCommandLine() , new String[] {"inspect", "-dir", PILOT_SAMPLES+ "/examples/Mass Roll-up Example"});
 
-        runTest( Application.createCommandLine() , new String[] {"eval", "-dir", PILOT_SAMPLES+ "/examples/Mass Roll-up Example", "-i", "A", "-t", "MassConstraintExample.Engine"});
+        runTest( CLI.createCommandLine() , new String[] {"eval", "-dir", PILOT_SAMPLES+ "/examples/Mass Roll-up Example", "-i", "A", "-t", "MassConstraintExample.Engine"});
 
 
         File newProject = new File("tmp/test"+System.currentTimeMillis());
-        runTest( Application.createCommandLine() , new String[] {"create", "-dir", newProject.getAbsolutePath() });
-        runTest( Application.createCommandLine() , new String[] {"validate", "-dir", newProject.getAbsolutePath() });
+        runTest( CLI.createCommandLine() , new String[] {"create", "-dir", newProject.getAbsolutePath() });
+        runTest( CLI.createCommandLine() , new String[] {"validate", "-dir", newProject.getAbsolutePath() });
 
 
-        runTest( Application.createCommandLine() , new String[] {"run", "-dir", newProject.getAbsolutePath() });
+        runTest( CLI.createCommandLine() , new String[] {"run", "-dir", newProject.getAbsolutePath() });
 
 
 

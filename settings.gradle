@@ -7,4 +7,4 @@ pluginManagement {
 }
 
 rootProject.name = 'mercurio'
-include('mercurio-cli', 'mercurio-plugin', 'mercurio-example-plugin');
+include('mercurio-cli', 'mercurio-core', 'mercurio-example-plugin');

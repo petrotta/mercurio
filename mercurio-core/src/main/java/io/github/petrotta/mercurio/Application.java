@@ -1,24 +1,26 @@
 package io.github.petrotta.mercurio;
 
 
-import io.github.petrotta.mercurio.commands.*;
+//import io.github.petrotta.mercurio.commands.*;
 //import io.github.petrotta.mercurio.interactive.CliCommands;
 
-import io.github.petrotta.mercurio.interactive.CliCommands;
-import io.github.petrotta.mercurio.utils.Logging;
-import io.github.petrotta.mercurio.utils.ZipUtils;
+//import io.github.petrotta.mercurio.interactive.CliCommands;
+//import io.github.petrotta.mercurio.utils.Logging;
+//import io.github.petrotta.mercurio.utils.ZipUtils;
+//
+//import io.github.petrotta.mercurio.commands.Package;
+//import jline.console.ConsoleReader;
+//import org.apache.log4j.BasicConfigurator;
+//import org.apache.log4j.ConsoleAppender;
+//import org.apache.log4j.Logger;
+//import picocli.CommandLine;
 
-import io.github.petrotta.mercurio.commands.Package;
-import jline.console.ConsoleReader;
-import org.apache.log4j.BasicConfigurator;
-import org.apache.log4j.ConsoleAppender;
-import org.apache.log4j.Logger;
-import picocli.CommandLine;
+import io.github.petrotta.mercurio.utils.ZipUtils;
 
 import java.io.*;
 import java.util.Properties;
 
-@CommandLine.Command()
+
 public class Application {
     public static final String APP_VERSION = "1.0.2";
 
@@ -38,29 +40,7 @@ public class Application {
     public Application() {
 
     }
-    public static void main(String... args) throws IOException {
 
-        ConsoleAppender ca = Logging.createConsoleAppender();
-        Logger.getRootLogger().addAppender(ca);
-
-        CommandLine commandLine = createCommandLine();
-
-        int exitCode = commandLine.execute(args );
-        System.exit(exitCode);
-    }
-
-    public static CommandLine createCommandLine() throws IOException {
-        CommandLine commandLine = new CommandLine(new Application())
-                .addSubcommand("validate",  new Validate())
-                .addSubcommand("eval",      new Evaluate())
-                .addSubcommand("version",   new Version())
-                .addSubcommand("create",    new Create())
-                .addSubcommand("package",   new Package())
-                .addSubcommand("run",       new Run())
-                .addSubcommand("inspect",   new Inspect())
-                .addSubcommand("interactive", new CliCommands(new ConsoleReader()));
-        return commandLine;
-    }
 
     public static Properties getProperties() throws IOException {
 

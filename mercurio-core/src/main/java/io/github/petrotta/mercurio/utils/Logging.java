@@ -1,6 +1,9 @@
 package io.github.petrotta.mercurio.utils;
 
-import org.apache.log4j.*;
+
+import org.apache.log4j.ConsoleAppender;
+import org.apache.log4j.Level;
+import org.apache.log4j.PatternLayout;
 
 public class Logging {
 

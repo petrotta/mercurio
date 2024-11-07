@@ -8,9 +8,13 @@ plugins {
 
 
 }
-
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
 application {
-    mainClass = 'io.github.petrotta.mercurio.Application'
+    mainClass = 'io.github.petrotta.mercurio.CLI'
 }
 group = 'io.github.petrotta'
 version = '1.0.2'
@@ -51,7 +55,8 @@ ext {
 
 dependencies {
 
-    implementation project(':mercurio-plugin')
+
+    implementation project(':mercurio-core')
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.3'
 
@@ -59,30 +64,25 @@ dependencies {
     annotationProcessor 'info.picocli:picocli-codegen:'+version_picocli
     implementation 'info.picocli:picocli-shell-jline2:'+version_picocli
 
+
     implementation 'org.omg.sysml:org.omg.sysml:'+version_sysml
     implementation 'org.omg.sysml:org.omg.sysml.interactive:'+version_sysml+':all' // all needed for json serialization
 
 
-    // Eclipse products
-//    implementation 'org.eclipse.xtext:org.eclipse.xtext:'+  version_xtext
-//    implementation('org.eclipse.xtext:org.eclipse.xtext.util:2.34.0')
-//    implementation 'org.eclipse.xtext:org.eclipse.xtext.common.types:'+ version_xtext
-//    implementation 'org.eclipse.xtext:org.eclipse.xtext.xbase:'+ version_xtext
 
-    implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
 
-    implementation  'com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.17.1'
-
+// https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core
+    implementation 'org.apache.logging.log4j:log4j-core:2.24.1'
 
     implementation 'org.python:jython:2.7.4'
 
     compileOnly 'org.projectlombok:lombok:1.18.34'
     annotationProcessor 'org.projectlombok:lombok:1.18.34'
 
-
+    implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
 
     // https://mvnrepository.com/artifact/com.google.guava/guava
-    implementation 'com.google.guava:guava:11.0.2'
+//    implementation 'com.google.guava:guava:11.0.2'
 
 }
 

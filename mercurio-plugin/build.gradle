@@ -1,7 +1,0 @@
-plugins {
-    id 'java'
-}
-
-
-group = 'io.github.petrotta'
-version = '1.0.2'
