@@ -2,7 +2,7 @@
 
 A SysMLv2 command line interpreter designed for SysML CI/CD development, enabling software-like workflows for model development.  This includes features like model validation, test case execution, and deployment tasks (e.g. Markdown generation).
 
-* [Simple one-click installation](https://github.com/petrotta/mercurio/releases/download/latest/mercurio.exe) with platform native executables (Windows, Mac (tbd), Linux (tbd))
+* Simple one-click installation with platform native executables -- [Windows](https://github.com/petrotta/mercurio/releases/latest/download/mercurio.exe), Mac (tbd), Linux (tbd)
 * No configuration required.  Installs with default sysml libraries.
 * Modular, allowing plugins for additional features
 
