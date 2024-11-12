@@ -2,15 +2,15 @@ package io.github.petrotta.mercurio;
 
 import io.github.petrotta.mercurio.commands.*;
 import io.github.petrotta.mercurio.commands.Package;
-import io.github.petrotta.mercurio.interactive.CliCommands;
+import io.github.petrotta.mercurio.interactive.Interactive;
 import io.github.petrotta.mercurio.utils.Logging;
-import jline.console.ConsoleReader;
 
 
 import org.apache.log4j.ConsoleAppender;
 import org.apache.log4j.Logger;
 import picocli.CommandLine;
 
+import java.io.File;
 import java.io.IOException;
 
 
@@ -31,6 +31,7 @@ public class CLI {
 
     public static CommandLine createCommandLine() throws IOException {
         CommandLine commandLine = new CommandLine(new CLI())
+                .addSubcommand("test", new Test())
                 .addSubcommand("validate",  new Validate())
                 .addSubcommand("eval",      new Evaluate())
                 .addSubcommand("version",   new Version())
@@ -38,7 +39,9 @@ public class CLI {
                 .addSubcommand("package",   new Package())
                 .addSubcommand("run",       new Run())
                 .addSubcommand("inspect",   new Inspect())
-                .addSubcommand("interactive", new CliCommands(new ConsoleReader()));
+                .addSubcommand("interactive", new Interactive());
         return commandLine;
     }
+
+
 }

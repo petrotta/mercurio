@@ -1,19 +1,7 @@
 package io.github.petrotta.mercurio;
 
 
-//import io.github.petrotta.mercurio.commands.*;
-//import io.github.petrotta.mercurio.interactive.CliCommands;
 
-//import io.github.petrotta.mercurio.interactive.CliCommands;
-//import io.github.petrotta.mercurio.utils.Logging;
-//import io.github.petrotta.mercurio.utils.ZipUtils;
-//
-//import io.github.petrotta.mercurio.commands.Package;
-//import jline.console.ConsoleReader;
-//import org.apache.log4j.BasicConfigurator;
-//import org.apache.log4j.ConsoleAppender;
-//import org.apache.log4j.Logger;
-//import picocli.CommandLine;
 
 import io.github.petrotta.mercurio.utils.ZipUtils;
 
@@ -22,7 +10,7 @@ import java.util.Properties;
 
 
 public class Application {
-    public static final String APP_VERSION = "1.0.2";
+    public static final String APP_VERSION = "1.0.3";
 
     private static final String APP_LOCATION = ".mercurio";
 
@@ -75,9 +63,17 @@ public class Application {
     public static void console(String msg) {
         System.out.println(msg);
     }
+
+    public static File currentDir;
     public static File getCurrentDir() {
-        return new File(System.getProperty("user.dir"));
+        if(currentDir == null) {currentDir = new File(System.getProperty("user.dir"));}
+        return currentDir;
     }
+    public static void setCurrentDir(File currentDir) {
+        Application.currentDir = currentDir;
+    }
+
+
     static File getUserDir() {
         return new File(System.getProperty("user.home"));
     }

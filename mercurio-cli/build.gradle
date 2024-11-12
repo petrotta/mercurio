@@ -3,11 +3,9 @@ plugins {
     id 'application'
 //    id 'edu.sc.seis.launch4j' version '3.0.6'
     id("dev.hydraulic.conveyor") version "1.5"
-
-
-
-
 }
+
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
@@ -17,7 +15,7 @@ application {
     mainClass = 'io.github.petrotta.mercurio.CLI'
 }
 group = 'io.github.petrotta'
-version = '1.0.2'
+version = '1.0.3'
 
 ext {
     app_version = version
@@ -57,8 +55,10 @@ dependencies {
 
 
     implementation project(':mercurio-core')
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.3'
+
+    implementation 'org.junit.jupiter:junit-jupiter-api:5.10.3'
+    implementation 'org.junit.jupiter:junit-jupiter-engine:5.10.3'
+    implementation 'org.junit.jupiter:junit-jupiter-params:5.10.3'
 
     implementation 'info.picocli:picocli:'+version_picocli
     annotationProcessor 'info.picocli:picocli-codegen:'+version_picocli
@@ -70,19 +70,12 @@ dependencies {
 
 
 
-
-// https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core
-    implementation 'org.apache.logging.log4j:log4j-core:2.24.1'
-
-    implementation 'org.python:jython:2.7.4'
-
     compileOnly 'org.projectlombok:lombok:1.18.34'
     annotationProcessor 'org.projectlombok:lombok:1.18.34'
 
     implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
 
-    // https://mvnrepository.com/artifact/com.google.guava/guava
-//    implementation 'com.google.guava:guava:11.0.2'
+    implementation 'dev.hydraulic.conveyor:conveyor-control:1.1'
 
 }
 

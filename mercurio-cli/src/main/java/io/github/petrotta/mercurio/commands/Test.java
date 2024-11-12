@@ -6,9 +6,6 @@ package io.github.petrotta.mercurio.commands;
 import io.github.petrotta.mercurio.build.Project;
 import io.github.petrotta.mercurio.build.StructuredProject;
 import io.github.petrotta.mercurio.plugins.PluginUtils;
-import org.eclipse.emf.ecore.EObject;
-import org.eclipse.emf.ecore.resource.Resource;
-import org.omg.sysml.lang.sysml.Element;
 import picocli.CommandLine;
 
 import java.io.File;
@@ -17,9 +14,9 @@ import java.util.concurrent.Callable;
 import static io.github.petrotta.mercurio.Application.console;
 
 
-@CommandLine.Command(name = "run", mixinStandardHelpOptions = true,
-        description = "Runs scripts.")
-public class Run extends ProjectCommand implements Callable<Integer> {
+@CommandLine.Command(name = "test", mixinStandardHelpOptions = true,
+        description = "Test.")
+public class Test extends ProjectCommand implements Callable<Integer> {
     @CommandLine.Option(names = { "-dir", "--dir" }, paramLabel = "SOURCE", description = "the source files or directories", arity = "0..1")
     private File sourceDir;
 
@@ -29,8 +26,7 @@ public class Run extends ProjectCommand implements Callable<Integer> {
     @CommandLine.Option(names = { "-verbose", "-v" }, paramLabel = "VERBOSE", description = "turn on verbose output", arity = "0..1", defaultValue = "false")
     private boolean verbose;
 
-    @CommandLine.Parameters(index = "0", description = "Task to run")
-    private String task;
+
 
     @Override
     public Integer call() throws Exception {
@@ -38,26 +34,18 @@ public class Run extends ProjectCommand implements Callable<Integer> {
         Project project = initProject(sourceDir, libDir, verbose);
 
         project.readSysML();
-        if(project instanceof StructuredProject) {
-            ((StructuredProject) project).loadDependencies();
-        }
-
         console("Resources read: " + project.getResourceSet().getResources().size());
 
-        PluginUtils mgr = new PluginUtils();
-        mgr.index();
 
+        if(project instanceof StructuredProject) {
+            ((StructuredProject) project).loadDependencies();
+            project.runTests();
 
-
-
-        if(mgr.getPluginClass(task)==null) {
-            console("Couldn't find task: " + task);
-            return 1;
-        } else {
-            mgr.run(task, project);
-            return 0;
         }
 
 
+
+
+        return 0;
     }
 }
