@@ -1,7 +1,6 @@
 plugins {
     id 'java'
 }
-
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
@@ -13,16 +12,17 @@ repositories {
     mavenCentral()
     maven { url 'https://repo.gradle.org/gradle/libs-releases' }
     maven { url 'https://repo.maven.apache.org/maven2/' }
+
+
 }
 
 
 
 group = 'io.github.petrotta'
-version = '1.0.2'
+version = '0.0.4'
 
 
 dependencies {
     implementation project(':mercurio-core')
     //implementation 'org.pf4j:pf4j:3.12.1'
 }
-

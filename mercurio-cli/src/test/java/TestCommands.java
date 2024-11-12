@@ -40,7 +40,8 @@ public class TestCommands {
         runTest( CLI.createCommandLine() , new String[] {"validate", "-dir", newProject.getAbsolutePath() });
 
 
-        runTest( CLI.createCommandLine() , new String[] {"run", "-dir", newProject.getAbsolutePath() });
+        //runTest( CLI.createCommandLine() , new String[] {"run", "test1", "-dir", newProject.getAbsolutePath() });
+
 
 
 

@@ -30,6 +30,7 @@ public class Create implements Callable<Integer>  {
 
         if(!sourceDir.exists()) {
             sourceDir.mkdir();
+            Application.setCurrentDir(sourceDir);
 
             File srcDir = new File(sourceDir, "src");
             srcDir.mkdir();
