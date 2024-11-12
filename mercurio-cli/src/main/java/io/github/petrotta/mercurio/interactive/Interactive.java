@@ -34,6 +34,9 @@ public class Interactive extends ProjectCommand implements Callable<Integer> {
     public Integer call() throws Exception { // your business logic goes here...
 
 
+        if(sourceDir != null) {
+            Application.setCurrentDir(sourceDir);
+        }
 
         startInteractiveShell();
 

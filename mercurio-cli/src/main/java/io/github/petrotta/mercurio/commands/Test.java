@@ -15,7 +15,7 @@ import static io.github.petrotta.mercurio.Application.console;
 
 
 @CommandLine.Command(name = "test", mixinStandardHelpOptions = true,
-        description = "Test.")
+        description = "Run unit tests.")
 public class Test extends ProjectCommand implements Callable<Integer> {
     @CommandLine.Option(names = { "-dir", "--dir" }, paramLabel = "SOURCE", description = "the source files or directories", arity = "0..1")
     private File sourceDir;

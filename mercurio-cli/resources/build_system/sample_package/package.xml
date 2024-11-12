@@ -12,7 +12,6 @@
 <!--    <author>Ivana Bildbotz</author>-->
 
 
-    <depend>roscpp</depend>
-    <depend>std_msgs</depend>
+
 
 </package>

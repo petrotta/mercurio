@@ -35,7 +35,7 @@ repositories {
 }
 
 group = 'io.github.petrotta'
-version = '1.0.2'
+version = '0.0.4'
 
 dependencies {
     implementation 'org.omg.sysml:org.omg.sysml:'+version_sysml

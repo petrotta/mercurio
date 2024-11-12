@@ -10,7 +10,7 @@ import java.util.Properties;
 
 
 public class Application {
-    public static final String APP_VERSION = "1.0.3";
+    public static final String APP_VERSION = "0.0.4";
 
     private static final String APP_LOCATION = ".mercurio";
 

@@ -7,14 +7,14 @@ import io.github.petrotta.mercurio.plugins.PluginAnnotation;
 
 import static io.github.petrotta.mercurio.Application.console;
 
-@PluginAnnotation(name = "test42", version = "1.0.2")
+@PluginAnnotation(name = "complexity", version = "1.0.2")
 public class MyPlugin extends Plugin {
 
 
     @Override
     public void init() {
         console("*******************************************");
-        console("Init Plugin");
+        console("Complexity Analyzer: Init Plugin");
         console("Name: " + getAnnotation().name());
         console("Version: " + getAnnotation().version());
         console("*******************************************");
@@ -26,7 +26,11 @@ public class MyPlugin extends Plugin {
 
         this.getClass().getPackage().getName();
 
-        console("running...");
+        console("Running complexity analyzer...");
+
+        console("Input Resources: " + project.getInputResources().size());
+
+
         console(project.validate().toString());
 
 
