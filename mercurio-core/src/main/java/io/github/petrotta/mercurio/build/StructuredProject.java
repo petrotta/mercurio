@@ -1,29 +1,31 @@
 package io.github.petrotta.mercurio.build;
 
-import groovy.junit5.plugin.JUnit5Runner;
-import groovy.lang.GroovyClassLoader;
 import io.github.petrotta.mercurio.Application;
 import io.github.petrotta.mercurio.build.xml.Coordinate;
 import io.github.petrotta.mercurio.build.xml.PackageManifest;
-import io.github.petrotta.mercurio.testing.SysMLTest;
-import junit.framework.JUnit4TestAdapter;
+import io.github.petrotta.mercurio.utils.TimeUtils;
+import io.github.petrotta.mercurio.utils.ZipUtils;
+import lombok.Getter;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.filefilter.DirectoryFileFilter;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.junit.runner.JUnitCore;
-import org.junit.runner.Result;
 import org.xml.sax.SAXException;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 
+import static io.github.petrotta.mercurio.Application.PACKAGE_MANIFEST_FILENAME;
 import static io.github.petrotta.mercurio.Application.console;
 
 public class StructuredProject extends Project {
     public static final String MANIFEST_FILE = "package.xml";
     public static final String FOLDER_SRC = "src";
-    public static final String TESTS_DIR = "tests";
-    private PackageManifest manifest;
+    public static final String FOLDER_TEST = "tests";
+    private static final String FOLDER_LIBS = "libs";
+    private static final String FOLDER_BUILD = "build";
+    @Getter private PackageManifest manifest;
 
     public StructuredProject(File dir, File library) throws IOException, SAXException {
         this(dir,library, false);
@@ -34,7 +36,7 @@ public class StructuredProject extends Project {
     }
 
     @Override
-    protected File getSourceDir() {
+    public File getSourceDir() {
         return new File(this.getDir(), FOLDER_SRC);
     }
 
@@ -42,9 +44,12 @@ public class StructuredProject extends Project {
 
         for(Coordinate coordinate   : manifest.getDependencies()) {
             Application.console("Loading " + coordinate.toString());
-            if(coordinate.getRepo()!=null) {
-                BuildSystem.loadProjectRepo(coordinate.getRepo().getUrl());
-            }
+            File dep = BuildSystem.findDependency(coordinate);
+            console("dep: " + dep.toString() + " exists: " +dep.exists() );
+
+//            if(coordinate.getRepo()!=null) {
+//                BuildSystem.loadProjectRepo(coordinate.getRepo().getUrl());
+//            }
         }
 
     }
@@ -53,7 +58,60 @@ public class StructuredProject extends Project {
     }
 
     public File getTestsDir() {
-        return new File(getDir(), TESTS_DIR);
+        return new File(getDir(), FOLDER_TEST);
+    }
+
+    public File getBuildDir() {
+        File buildDir = new File(getDir(), FOLDER_BUILD);
+        return buildDir;
+    }
+
+    public File getLibDir() {
+
+        File libDir = new File(getBuildDir(), FOLDER_LIBS);
+        if(!libDir.isDirectory()) libDir.mkdirs();
+        return libDir;
+    }
+
+    public void makeBuild(boolean install) throws IOException {
+        File buildDir = stageBuildDirectory();
+
+
+
+        File libDir = getLibDir();
+        PackageManifest manifest = getManifest();
+        File libFile = new File(libDir,manifest.getOrg()+"_"+manifest.getProject()+"_"+manifest.getVersion()+".zip");
+
+        ZipUtils.zip(buildDir,libFile, true);
+
+        if(install) {
+            install(libFile);
+        }
+
+
+    }
+    public void install(File libFile) throws IOException {
+
+        File dest = new File(Application.getPackagesDir(), libFile.getName());
+        Files.copy(libFile.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private File stageBuildDirectory() throws IOException {
+        File buildDir = getBuildDir();
+        File tempDir = new File(buildDir, "build-" + TimeUtils.getFormattedTimeStamp());
+
+        // copy over source files and manifest
+        FileUtils.copyDirectory(getSourceDir(), new File(tempDir, FOLDER_SRC));
+        FileUtils.copyFile(getManifestFile(), new File(tempDir, PACKAGE_MANIFEST_FILENAME));
+
+        return tempDir;
+
+
+    }
+
+    private File getManifestFile() {
+        return new File(getDir(), MANIFEST_FILE);
+
     }
 
 

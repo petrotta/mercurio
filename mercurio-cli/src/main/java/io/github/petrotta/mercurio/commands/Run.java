@@ -5,10 +5,7 @@ package io.github.petrotta.mercurio.commands;
 //import org.graalvm.polyglot.Value;
 import io.github.petrotta.mercurio.build.Project;
 import io.github.petrotta.mercurio.build.StructuredProject;
-import io.github.petrotta.mercurio.plugins.PluginUtils;
-import org.eclipse.emf.ecore.EObject;
-import org.eclipse.emf.ecore.resource.Resource;
-import org.omg.sysml.lang.sysml.Element;
+import io.github.petrotta.mercurio.plugins.PluginManager;
 import picocli.CommandLine;
 
 import java.io.File;
@@ -44,13 +41,13 @@ public class Run extends ProjectCommand implements Callable<Integer> {
 
         console("Resources read: " + project.getResourceSet().getResources().size());
 
-        PluginUtils mgr = new PluginUtils();
+        PluginManager mgr = new PluginManager();
         mgr.index();
 
 
 
 
-        if(mgr.getPluginClass(task)==null) {
+        if(mgr.getTaskPluginClass(task)==null) {
             console("Couldn't find task: " + task);
             return 1;
         } else {

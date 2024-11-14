@@ -36,11 +36,22 @@ public class ZipUtils {
     }
 
     public static void zip(File sourceDirectory, File zipFile) throws IOException {
+        zip(sourceDirectory, zipFile, false);
+    }
+
+    public static void zip(File sourceDirectory, File zipFile, boolean ignoreTopDir) throws IOException {
         //File sourceDirectory = new File(sourceDirectoryPath);
         FileOutputStream fos = new FileOutputStream(zipFile);
         ZipOutputStream zos = new ZipOutputStream(fos);
 
-        zipFile(sourceDirectory, sourceDirectory.getName(), zos);
+        if(!ignoreTopDir) {
+            zipFile(sourceDirectory, sourceDirectory.getName(), zos);
+        } else {
+            for (File entry : sourceDirectory.listFiles()) {
+                zipFile(entry, entry.getName(), zos);
+            }
+        }
+
 
         zos.close();
         fos.close();
@@ -79,36 +90,50 @@ public class ZipUtils {
     }
 
     // path starts with / for root
-    public static List<Path> listFilesForZip(Path zipFilePath, String path, int depth) throws IOException {
+//    public static List<Path> listFilesForZip(Path zipFilePath, String path, int depth) throws IOException {
+////
+//        List<Path> result = new ArrayList<>();
+//        try (java.nio.file.FileSystem zipFileSystem = FileSystems.newFileSystem(zipFilePath, (ClassLoader) null)) {
+//            Path root = zipFileSystem.getPath(path);
 //
-        List<Path> result = new ArrayList<>();
-        try (java.nio.file.FileSystem zipFileSystem = FileSystems.newFileSystem(zipFilePath, (ClassLoader) null)) {
-            Path root = zipFileSystem.getPath(path);
+//            try (Stream<Path> paths = Files.walk(root, depth)) {
+//                paths.forEach(e-> {
+//                    result.add(e);
+//                    //console("a: " + e.toString());
+//                    //console("name: " + e.getClass().getName());
+//                });
+//            }
+//        }
+//        return result;
+//
+//    }
+//    public static List<String> getAllClassesInJar(ZipInputStream inputStream) throws IOException {
+//        List<String> classNames = new ArrayList<>();
+//
+//        for (ZipEntry entry = inputStream.getNextEntry(); entry != null; entry = inputStream.getNextEntry()) {
+//            if (!entry.isDirectory() && entry.getName().endsWith(".class")) {
+//                // This ZipEntry represents a class. Now, what class does it represent?
+//                String className = entry.getName().replace('/', '.'); // including ".class"
+//                classNames.add(className.substring(0, className.length() - ".class".length()));
+//            }
+//        }
+//        return classNames;
+//    }
 
-            try (Stream<Path> paths = Files.walk(root, depth)) {
-                paths.forEach(e-> {
-                    result.add(e);
-                    //console("a: " + e.toString());
-                    //console("name: " + e.getClass().getName());
-                });
-            }
-        }
-        return result;
-
-    }
-
-    public static List<String> getAllClassesInJar(File jarFile) throws IOException {
-        List<String> classNames = new ArrayList<String>();
-        ZipInputStream zip = new ZipInputStream(new FileInputStream(jarFile));
-        for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
-            if (!entry.isDirectory() && entry.getName().endsWith(".class")) {
-                // This ZipEntry represents a class. Now, what class does it represent?
-                String className = entry.getName().replace('/', '.'); // including ".class"
-                classNames.add(className.substring(0, className.length() - ".class".length()));
-            }
-        }
-        return classNames;
-    }
+//    public static List<String> getAllClassesInJar(File jarFile) throws IOException {
+//
+//        return getAllClassesInJar(new ZipInputStream(new FileInputStream(jarFile)));
+////        List<String> classNames = new ArrayList<String>();
+////        ZipInputStream zip = new ZipInputStream(new FileInputStream(jarFile));
+////        for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+////            if (!entry.isDirectory() && entry.getName().endsWith(".class")) {
+////                // This ZipEntry represents a class. Now, what class does it represent?
+////                String className = entry.getName().replace('/', '.'); // including ".class"
+////                classNames.add(className.substring(0, className.length() - ".class".length()));
+////            }
+////        }
+////        return classNames;
+//    }
 
 
 
