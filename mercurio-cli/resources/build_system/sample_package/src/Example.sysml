@@ -1,1 +1,4 @@
-package A {}
+package A {
+    package B {}
+
+}

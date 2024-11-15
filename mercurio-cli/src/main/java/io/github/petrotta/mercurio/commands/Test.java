@@ -5,7 +5,6 @@ package io.github.petrotta.mercurio.commands;
 //import org.graalvm.polyglot.Value;
 import io.github.petrotta.mercurio.build.Project;
 import io.github.petrotta.mercurio.build.StructuredProject;
-import io.github.petrotta.mercurio.plugins.PluginUtils;
 import picocli.CommandLine;
 
 import java.io.File;
@@ -39,12 +38,8 @@ public class Test extends ProjectCommand implements Callable<Integer> {
 
         if(project instanceof StructuredProject) {
             ((StructuredProject) project).loadDependencies();
-            project.runTests();
-
         }
-
-
-
+        project.runTests();
 
         return 0;
     }

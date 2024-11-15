@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import io.github.petrotta.mercurio.Application;
+import io.github.petrotta.mercurio.build.xml.Coordinate;
 import io.github.petrotta.mercurio.build.xml.PackageManifest;
 import io.github.petrotta.mercurio.utils.ZipUtils;
 import org.eclipse.jgit.api.Git;
@@ -34,6 +35,17 @@ public class BuildSystem {
 
     }
 
+    public static File findDependency(Coordinate location) throws IOException {
+
+         String file = location.getOrg()+"_"+location.getProject()+"_"+ location.getVersion()+".zip";
+
+         File packagesDir = Application.getPackagesDir();
+         File dependency = new File(packagesDir,file);
+
+         return dependency;
+
+
+    }
     public static void loadProjectRepo(String depend) throws GitAPIException, IOException {
 
 

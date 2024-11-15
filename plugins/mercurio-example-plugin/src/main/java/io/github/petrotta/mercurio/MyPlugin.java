@@ -2,13 +2,13 @@ package io.github.petrotta.mercurio;
 
 
 import io.github.petrotta.mercurio.build.Project;
-import io.github.petrotta.mercurio.plugins.Plugin;
+import io.github.petrotta.mercurio.plugins.type.TaskPlugin;
 import io.github.petrotta.mercurio.plugins.PluginAnnotation;
 
 import static io.github.petrotta.mercurio.Application.console;
 
-@PluginAnnotation(name = "complexity", version = "1.0.2")
-public class MyPlugin extends Plugin {
+@PluginAnnotation(organization="mercurio", name = "complexity", version = "0.0.4")
+public class MyPlugin extends TaskPlugin {
 
 
     @Override
