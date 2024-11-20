@@ -1,5 +1,6 @@
 package io.github.petrotta.mercurio.commands;
 
+import io.github.petrotta.mercurio.Application;
 import io.github.petrotta.mercurio.build.Project;
 import io.github.petrotta.mercurio.build.StructuredProject;
 import org.eclipse.xtext.validation.Issue;
@@ -27,7 +28,7 @@ public class Validate extends ProjectCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception { // your business logic goes here...
 
-        Project project = initProject(sourceDir, libDir, verbose);
+        Project project = Application.openProject(sourceDir, libDir, verbose);
 
         project.readSysML();
         if(project instanceof StructuredProject) {

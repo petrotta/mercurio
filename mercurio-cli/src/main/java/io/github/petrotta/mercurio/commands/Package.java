@@ -42,7 +42,7 @@ public class Package extends ProjectCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
 
-        Project project = initProject(sourceDir, libDir, verbose);
+        Project project = Application.openProject(sourceDir, libDir, verbose);
 
         if(!(project instanceof StructuredProject)) {
             console("Packaging only works on structured projects.");

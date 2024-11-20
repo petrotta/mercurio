@@ -3,6 +3,7 @@ package io.github.petrotta.mercurio.commands;
 
 //import org.graalvm.polyglot.Context;
 //import org.graalvm.polyglot.Value;
+import io.github.petrotta.mercurio.Application;
 import io.github.petrotta.mercurio.build.Project;
 import io.github.petrotta.mercurio.build.StructuredProject;
 import picocli.CommandLine;
@@ -30,7 +31,7 @@ public class Test extends ProjectCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
 
-        Project project = initProject(sourceDir, libDir, verbose);
+        Project project = Application.openProject(sourceDir, libDir, verbose);
 
         project.readSysML();
         console("Resources read: " + project.getResourceSet().getResources().size());

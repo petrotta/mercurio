@@ -1,21 +1,29 @@
-import io.github.petrotta.mercurio.testing.SysMLTest;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assertions;
 import io.github.petrotta.mercurio.build.Project;
+import io.github.petrotta.mercurio.Application;
 
-import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.resource.Resource;
 import org.omg.sysml.lang.sysml.Element;
 
+
+
+
 class X1 {
 
-    @SysMLTest
-    void test1(Project prj) {
-        System.out.println("prj: " + prj)
+    @Test
+    void test1() {
+        def prj = Application.getCurrentProject();
 
+        System.out.println("prj: " + prj)
+        Assertions.assertTrue(prj != null)
     }
 
 
-    @SysMLTest
-    void test2(Project prj) {
+    @Test
+    void test2() {
+        def prj = Application.getCurrentProject();
+        
         System.out.println("prj: " + prj)
         System.out.println(prj.getInputResources());
 
@@ -26,6 +34,7 @@ class X1 {
 
 
         }
+
     }
 
 }

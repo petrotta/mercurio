@@ -1,5 +1,6 @@
 package io.github.petrotta.mercurio.commands;
 
+import io.github.petrotta.mercurio.Application;
 import io.github.petrotta.mercurio.build.Project;
 import picocli.CommandLine;
 
@@ -24,7 +25,7 @@ public class Viz extends ProjectCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
 
-        Project project = initProject(sourceDir, libDir, verbose);
+        Project project = Application.openProject(sourceDir, libDir, verbose);
         project.readSysML();
         console("Resources read: " + project.getResourceSet().getResources().size(), verbose);
 

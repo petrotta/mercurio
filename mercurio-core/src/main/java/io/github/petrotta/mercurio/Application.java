@@ -3,6 +3,9 @@ package io.github.petrotta.mercurio;
 
 
 
+import io.github.petrotta.mercurio.build.Project;
+import io.github.petrotta.mercurio.build.StructuredProject;
+import io.github.petrotta.mercurio.build.UnstructuredProject;
 import io.github.petrotta.mercurio.utils.ZipUtils;
 
 import java.io.*;
@@ -24,6 +27,8 @@ public class Application {
     public static final String RESOURCE_STDLIB_ZIP = "mercurio/sysml.library.zip";
     private static final String PLUGINS_DIR = "plugins" ;
 
+
+    private static Project currentProject = null;
 
     public Application() {
 
@@ -120,6 +125,35 @@ public class Application {
         } else {
             ZipUtils.unzip(inStream, libDir.toPath());
         }
+    }
+
+    static public Project openProject(File sourceDir, File libDir, boolean verbose) throws Exception {
+        if(sourceDir == null) {
+            sourceDir = Application.getCurrentDir();;
+        }
+        console("Source Dir:   "+ sourceDir.toString(), verbose);
+
+        if(libDir == null) {
+            libDir = Application.getStdLibDir();
+        }
+        console("Library Dir: " + libDir.getAbsolutePath(), verbose);
+        Project openedProject;
+
+        if(StructuredProject.containsManifest(sourceDir)) {
+            console("Structured project recognized", verbose);
+            openedProject=  new StructuredProject(sourceDir, libDir);
+        }  else {
+            console("Unstructured project recognized", verbose);
+            openedProject =  new UnstructuredProject(sourceDir, libDir);
+        }
+
+        currentProject = openedProject;
+        return openedProject;
+
+    }
+
+    static public Project getCurrentProject() {
+        return currentProject;
     }
 
 

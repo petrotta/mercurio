@@ -28,7 +28,7 @@ public class Inspect extends ProjectCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception { // your business logic goes here...
 
-        Project project = initProject(sourceDir, libDir, verbose);
+        Project project = Application.openProject(sourceDir, libDir, verbose);
         project.readSysML();
 
         for(Resource r : project.getInputResources()) {

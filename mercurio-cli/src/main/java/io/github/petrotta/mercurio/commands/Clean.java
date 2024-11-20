@@ -33,7 +33,7 @@ public class Clean extends ProjectCommand implements Callable<Integer> {
     public Integer call() throws Exception {
 
         File libDir = Application.getStdLibDir();
-        Project project = initProject(sourceDir, libDir, false);
+        Project project = Application.openProject(sourceDir, libDir, false);
 
         if(!(project instanceof StructuredProject)) {
             console("Clean only works on structured projects.");

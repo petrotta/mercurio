@@ -1,15 +1,13 @@
 package io.github.petrotta.mercurio.build;
 
-import groovy.lang.GroovyClassLoader;
-import io.github.petrotta.mercurio.Application;
-import io.github.petrotta.mercurio.testing.SysMLTest;
+
 import io.github.petrotta.mercurio.testing.TestingUtils;
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.resource.ResourceSet;
 import org.eclipse.xtext.validation.Issue;
 import org.omg.sysml.interactive.SysMLInteractive;
 import org.omg.sysml.interactive.VizResult;
-import org.omg.sysml.lang.sysml.Element;
+
 
 import java.io.File;
 import java.io.IOException;
@@ -27,10 +25,10 @@ public abstract class Project {
     private final File dir;
     private final SysMLInteractive interactive;
 
-    public Project(File dir, File library) throws IOException {
+    protected Project(File dir, File library) throws IOException {
         this(dir, library, false);
     }
-    public Project(File dir, File library, boolean verbose) throws IOException {
+    protected Project(File dir, File library, boolean verbose) throws IOException {
         this.dir = dir;
         this.library = library;
 

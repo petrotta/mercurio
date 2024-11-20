@@ -38,7 +38,7 @@ public class Evaluate extends ProjectCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        Project project = initProject(sourceDir, libDir, verbose);
+        Project project = Application.openProject(sourceDir, libDir, verbose);
 
         project.readSysML();
 
