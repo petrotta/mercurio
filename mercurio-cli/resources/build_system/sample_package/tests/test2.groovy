@@ -9,14 +9,14 @@ import org.omg.sysml.lang.sysml.Element;
 
 
 
-class X1 {
+class X2 {
 
     @Test
     void test1() {
         def prj = Application.getCurrentProject();
 
         System.out.println("prj: " + prj)
-        Assertions.assertTrue(prj != null)
+        Assertions.assertTrue(prj == null)
     }
 
 
@@ -31,11 +31,9 @@ class X1 {
             for(Element e : r.getAllContents()) {
                 System.out.println("..." + e.getName());
             }
-            Assertions.assertTrue(r != null)
 
 
         }
-
 
     }
 

@@ -8,6 +8,7 @@ pluginManagement {
 
 rootProject.name = 'mercurio'
 
+include('mercurio-gradle')
 include('mercurio-cli')
 include('mercurio-core')
 include(':plugins:mercurio-example-plugin');
