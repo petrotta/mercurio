@@ -1,6 +1,7 @@
 
 pluginManagement {
     repositories {
+        mavenLocal()
         mavenCentral()
         gradlePluginPortal()
     }
@@ -8,10 +9,12 @@ pluginManagement {
 
 rootProject.name = 'mercurio'
 
-include('mercurio-gradle')
+include('mercurio-gradle-plugin')
 include('mercurio-cli')
 include('mercurio-core')
 include(':plugins:mercurio-example-plugin');
 include 'plugins:mercurio-markdown-docs'
+
+
 findProject(':plugins:mercurio-markdown-docs')?.name = 'mercurio-markdown-docs'
 

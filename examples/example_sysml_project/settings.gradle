@@ -1,0 +1,7 @@
+pluginManagement {
+    repositories {
+        // resolve plugins from mavenLocal()
+        mavenLocal()
+        gradlePluginPortal()
+    }
+}

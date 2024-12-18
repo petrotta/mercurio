@@ -1,0 +1,11 @@
+plugins {
+    id 'io.github.petrotta.mercurio-sysml' version '0.0.6'
+}
+
+repositories {
+    mavenLocal()
+}
+
+dependencies {
+    main 'a:2.2'
+}
