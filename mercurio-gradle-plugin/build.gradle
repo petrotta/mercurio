@@ -2,16 +2,18 @@ plugins {
     id 'java'
     id 'java-gradle-plugin'
     id 'maven-publish'
+    id 'com.github.johnrengelman.shadow' version '7.1.2'
 
 }
-group = 'io.github.petrotta'
-version = '0.0.6'
 
 
-repositories {
 
-    mavenCentral()
+
+
+tasks.shadowJar {
+    setProperty("zip64", true)
 }
+
 publishing {
     repositories {
         mavenLocal()
@@ -21,17 +23,21 @@ publishing {
 gradlePlugin {
     plugins {
         create("mercurio-sysml") {
-            id = "io.github.petrotta.mercurio-sysml"
+            id = "mercurio-sysml"
+            group = 'io.github.petrotta'
             implementationClass = "io.github.petrotta.mercurio.plugin.GradlePlugin"
+            version='0.0.7'
+
         }
     }
 }
 
-
-
 dependencies {
     testImplementation platform('org.junit:junit-bom:5.10.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+
+    // use compileOnly, so no declared dependencies.  This forces the use of a fat jar
+    implementation 'io.github.petrotta:mercurio-core:0.0.7'
 }
 
 test {

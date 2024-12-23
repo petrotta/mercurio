@@ -2,14 +2,11 @@ package io.github.petrotta.mercurio.commands;
 
 import io.github.petrotta.mercurio.Application;
 import io.github.petrotta.mercurio.build.Project;
-import io.github.petrotta.mercurio.build.StructuredProject;
-import io.github.petrotta.mercurio.build.xml.PackageManifest;
-import io.github.petrotta.mercurio.utils.ZipUtils;
+import io.github.petrotta.mercurio.build.MercurioProject;
 import picocli.CommandLine;
 
 import java.io.File;
 import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.concurrent.Callable;
 
 import static io.github.petrotta.mercurio.Application.console;
@@ -35,12 +32,12 @@ public class Clean extends ProjectCommand implements Callable<Integer> {
         File libDir = Application.getStdLibDir();
         Project project = Application.openProject(sourceDir, libDir, false);
 
-        if(!(project instanceof StructuredProject)) {
+        if(!(project instanceof MercurioProject)) {
             console("Clean only works on structured projects.");
             return 0;
         }
 
-        StructuredProject structurePrj = (StructuredProject) project;
+        MercurioProject structurePrj = (MercurioProject) project;
         File buildDir = structurePrj.getBuildDir();
         Files.deleteIfExists(buildDir.toPath());
 

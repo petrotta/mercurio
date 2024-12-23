@@ -3,12 +3,12 @@ package io.github.petrotta.mercurio.build;
 import java.io.File;
 import java.io.IOException;
 
-public class UnstructuredProject extends Project {
+public class UnstructuredPrj extends Project {
 
-    public UnstructuredProject(File dir, File library) throws IOException {
+    public UnstructuredPrj(File dir, File library) throws IOException {
         super(dir,library);
     }
-    public UnstructuredProject(File dir, File library, boolean verbose) throws IOException {
+    public UnstructuredPrj(File dir, File library, boolean verbose) throws IOException {
         super(dir, library, verbose);
     }
 

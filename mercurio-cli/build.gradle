@@ -1,7 +1,6 @@
 plugins {
     id 'java'
     id 'application'
-//    id 'edu.sc.seis.launch4j' version '3.0.6'
     id("dev.hydraulic.conveyor") version "1.5"
 }
 
@@ -14,38 +13,8 @@ java {
 application {
     mainClass = 'io.github.petrotta.mercurio.CLI'
 }
-group = 'io.github.petrotta'
-version = '0.0.5'
 
 ext {
-    app_version = version
-}
-
-repositories {
-
-    maven {
-        name = "GitHubPackages"
-        url = uri("https://maven.pkg.github.com/Systems-Modeling/SysML-v2-Pilot-Implementation")
-        credentials {
-            username = project.findProperty("gpr.user") ?: System.getenv("USERNAME")
-            password = project.findProperty("gpr.key") ?: System.getenv("TOKEN")
-        }
-    }
-    maven {
-        url = uri("https://repo.eclipse.org")
-    }
-
-    mavenLocal()
-    mavenCentral()
-    maven { url 'https://repo.gradle.org/gradle/libs-releases' }
-    maven { url 'https://repo.maven.apache.org/maven2/' }
-}
-
-
-ext {
-    version_sysml="0.46.0-SNAPSHOT"
-    graalvm_polyglot_version="24.1.1"
-    version_xtext='2.34.0'
     version_picocli="4.7.6"
 }
 
@@ -65,15 +34,10 @@ dependencies {
     implementation 'info.picocli:picocli-shell-jline2:'+version_picocli
 
 
-    implementation 'org.omg.sysml:org.omg.sysml:'+version_sysml
-    implementation 'org.omg.sysml:org.omg.sysml.interactive:'+version_sysml+':all' // all needed for json serialization
-
-
-
     compileOnly 'org.projectlombok:lombok:1.18.34'
     annotationProcessor 'org.projectlombok:lombok:1.18.34'
 
-    implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
+   // implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
 
     implementation 'dev.hydraulic.conveyor:conveyor-control:1.1'
 
@@ -84,11 +48,6 @@ test {
 }
 
 
-//launch4j {
-//    mainClassName = 'io.github.petrotta.mercurio.Application'
-//   // icon = "${projectDir}/icons/myApp.ico"
-//    headerType= 'console'
-//}
 
 task copyDeps(type: Copy) {
     from(sourceSets.main.runtimeClasspath)

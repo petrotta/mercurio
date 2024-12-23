@@ -1,20 +1,12 @@
 package io.github.petrotta.mercurio.commands;
 
-import io.github.petrotta.mercurio.build.BuildSystem;
 import io.github.petrotta.mercurio.build.Project;
-import io.github.petrotta.mercurio.build.StructuredProject;
-import io.github.petrotta.mercurio.build.xml.PackageManifest;
-import io.github.petrotta.mercurio.utils.FileUtils;
-import io.github.petrotta.mercurio.utils.TimeUtils;
-import io.github.petrotta.mercurio.utils.ZipUtils;
+import io.github.petrotta.mercurio.build.MercurioProject;
 import io.github.petrotta.mercurio.Application;
 
 import picocli.CommandLine;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.concurrent.Callable;
 
 import static io.github.petrotta.mercurio.Application.console;
@@ -44,15 +36,15 @@ public class Package extends ProjectCommand implements Callable<Integer> {
 
         Project project = Application.openProject(sourceDir, libDir, verbose);
 
-        if(!(project instanceof StructuredProject)) {
+        if(!(project instanceof MercurioProject)) {
             console("Packaging only works on structured projects.");
             return 0;
         }
         
-        StructuredProject structuredProject = (StructuredProject) project;
-        structuredProject.readSysML();
+        MercurioProject mercurioProject = (MercurioProject) project;
+        mercurioProject.readSysML();
         
-        structuredProject.makeBuild(install);
+        mercurioProject.makeBuild(install);
 
 
         System.out.println("Package Dir:   "+ Application.getPackagesDir());

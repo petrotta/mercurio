@@ -7,7 +7,6 @@ import io.github.petrotta.mercurio.utils.TimeUtils;
 import io.github.petrotta.mercurio.utils.ZipUtils;
 import lombok.Getter;
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.io.filefilter.DirectoryFileFilter;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.xml.sax.SAXException;
 
@@ -19,7 +18,8 @@ import java.nio.file.StandardCopyOption;
 import static io.github.petrotta.mercurio.Application.PACKAGE_MANIFEST_FILENAME;
 import static io.github.petrotta.mercurio.Application.console;
 
-public class StructuredProject extends Project {
+@Deprecated
+public class MercurioProject extends Project {
     public static final String MANIFEST_FILE = "package.xml";
     public static final String FOLDER_SRC = "src";
     public static final String FOLDER_TEST = "tests";
@@ -27,10 +27,10 @@ public class StructuredProject extends Project {
     private static final String FOLDER_BUILD = "build";
     @Getter private PackageManifest manifest;
 
-    public StructuredProject(File dir, File library) throws IOException, SAXException {
+    public MercurioProject(File dir, File library) throws IOException, SAXException {
         this(dir,library, false);
     }
-    public StructuredProject(File dir, File library, boolean verbose) throws IOException, SAXException {
+    public MercurioProject(File dir, File library, boolean verbose) throws IOException, SAXException {
         super(dir, library, verbose);
          manifest = BuildSystem.readBuildFile(new File(dir, MANIFEST_FILE));
     }
@@ -40,7 +40,7 @@ public class StructuredProject extends Project {
         return new File(this.getDir(), FOLDER_SRC);
     }
 
-    public void loadDependencies() throws GitAPIException, IOException {
+    public void loadDependencies() throws  IOException {
 
         for(Coordinate coordinate   : manifest.getDependencies()) {
             Application.console("Loading " + coordinate.toString());

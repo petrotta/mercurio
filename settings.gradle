@@ -1,4 +1,6 @@
 
+
+
 pluginManagement {
     repositories {
         mavenLocal()
@@ -7,14 +9,47 @@ pluginManagement {
     }
 }
 
+def secrets = new Properties()
+file("secrets.properties").withInputStream { secrets.load(it) }
+
+
+
 rootProject.name = 'mercurio'
 
-include('mercurio-gradle-plugin')
+
+
+
 include('mercurio-cli')
 include('mercurio-core')
-include(':plugins:mercurio-example-plugin');
-include 'plugins:mercurio-markdown-docs'
+include('mercurio-gradle-plugin')
+include('plugins:mercurio-example-plugin')
+include('plugins:mercurio-markdown-docs')
 
 
-findProject(':plugins:mercurio-markdown-docs')?.name = 'mercurio-markdown-docs'
+
+
+
+dependencyResolutionManagement {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/Systems-Modeling/SysML-v2-Pilot-Implementation")
+            credentials {
+                // Expects this to be defined in gradle.properties and not included in git
+                username = secrets.get("gpr_user") ?: System.getenv("USERNAME")
+                password = secrets.get("gpr_key") ?: System.getenv("TOKEN")
+
+            }
+        }
+        maven {
+            url = uri("https://repo.eclipse.org")
+        }
+
+        mavenLocal()
+        mavenCentral()
+        maven { url 'https://repo.gradle.org/gradle/libs-releases' }
+        maven { url 'https://repo.maven.apache.org/maven2/' }
+    }
+}
+
 

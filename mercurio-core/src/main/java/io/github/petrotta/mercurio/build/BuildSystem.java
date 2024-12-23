@@ -1,6 +1,5 @@
 package io.github.petrotta.mercurio.build;
 
-import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import io.github.petrotta.mercurio.Application;
@@ -96,7 +95,7 @@ public class BuildSystem {
         if (directory.isDirectory()) {
             System.out.println("Directory: " + directory.getAbsolutePath());
 
-            if(StructuredProject.containsManifest(directory)) {
+            if(MercurioProject.containsManifest(directory)) {
                 structuredProjectsInRepo.add(directory);
             } else {
                 // Get list of files and directories in the current directory

@@ -1,4 +1,4 @@
-gradle.properties
+
 .idea
 
 tmp
@@ -52,3 +52,4 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+/secrets.properties

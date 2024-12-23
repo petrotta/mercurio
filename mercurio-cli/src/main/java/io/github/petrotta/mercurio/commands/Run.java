@@ -5,7 +5,7 @@ package io.github.petrotta.mercurio.commands;
 //import org.graalvm.polyglot.Value;
 import io.github.petrotta.mercurio.Application;
 import io.github.petrotta.mercurio.build.Project;
-import io.github.petrotta.mercurio.build.StructuredProject;
+import io.github.petrotta.mercurio.build.MercurioProject;
 import io.github.petrotta.mercurio.plugins.PluginManager;
 import picocli.CommandLine;
 
@@ -36,8 +36,8 @@ public class Run extends ProjectCommand implements Callable<Integer> {
         Project project = Application.openProject(sourceDir, libDir, verbose);
 
         project.readSysML();
-        if(project instanceof StructuredProject) {
-            ((StructuredProject) project).loadDependencies();
+        if(project instanceof MercurioProject) {
+            ((MercurioProject) project).loadDependencies();
         }
 
         console("Resources read: " + project.getResourceSet().getResources().size());

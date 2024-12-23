@@ -3,9 +3,10 @@ package io.github.petrotta.mercurio;
 
 
 
+import io.github.petrotta.mercurio.build.GradleProject;
 import io.github.petrotta.mercurio.build.Project;
-import io.github.petrotta.mercurio.build.StructuredProject;
-import io.github.petrotta.mercurio.build.UnstructuredProject;
+import io.github.petrotta.mercurio.build.MercurioProject;
+import io.github.petrotta.mercurio.build.UnstructuredPrj;
 import io.github.petrotta.mercurio.utils.ZipUtils;
 
 import java.io.*;
@@ -13,7 +14,7 @@ import java.util.Properties;
 
 
 public class Application {
-    public static final String APP_VERSION = "0.0.5";
+    public static final String APP_VERSION = GradleProperties.APPLICATION_VERSION;
 
     private static final String APP_LOCATION = ".mercurio";
 
@@ -127,6 +128,13 @@ public class Application {
         }
     }
 
+
+    static public GradleProject openGradleProject(File sourceDir, File libDir, boolean verbose) throws Exception {
+        GradleProject gradleProject =  new GradleProject(sourceDir, libDir);
+        currentProject = gradleProject;
+        return gradleProject;
+    }
+
     static public Project openProject(File sourceDir, File libDir, boolean verbose) throws Exception {
         if(sourceDir == null) {
             sourceDir = Application.getCurrentDir();;
@@ -139,12 +147,16 @@ public class Application {
         console("Library Dir: " + libDir.getAbsolutePath(), verbose);
         Project openedProject;
 
-        if(StructuredProject.containsManifest(sourceDir)) {
+        if(GradleProject.containsManifest(sourceDir)) {
+            console("Gradle project recognized", verbose);
+            openedProject=  new GradleProject(sourceDir, libDir);
+
+        } else if(MercurioProject.containsManifest(sourceDir)) {
             console("Structured project recognized", verbose);
-            openedProject=  new StructuredProject(sourceDir, libDir);
+            openedProject=  new MercurioProject(sourceDir, libDir);
         }  else {
             console("Unstructured project recognized", verbose);
-            openedProject =  new UnstructuredProject(sourceDir, libDir);
+            openedProject =  new UnstructuredPrj(sourceDir, libDir);
         }
 
         currentProject = openedProject;
