@@ -14,15 +14,8 @@ application {
     mainClass = 'io.github.petrotta.mercurio.CLI'
 }
 
-ext {
-    version_picocli="4.7.6"
-}
-
-
 
 dependencies {
-
-
     implementation project(':mercurio-core')
 
     implementation 'org.junit.jupiter:junit-jupiter-api:5.10.3'
@@ -34,10 +27,8 @@ dependencies {
     implementation 'info.picocli:picocli-shell-jline2:'+version_picocli
 
 
-    compileOnly 'org.projectlombok:lombok:1.18.34'
-    annotationProcessor 'org.projectlombok:lombok:1.18.34'
-
-   // implementation 'org.eclipse.jgit:org.eclipse.jgit:7.0.0.202409031743-r'
+    compileOnly 'org.projectlombok:lombok:'+version_lombok
+    annotationProcessor 'org.projectlombok:lombok:'+version_lombok
 
     implementation 'dev.hydraulic.conveyor:conveyor-control:1.1'
 

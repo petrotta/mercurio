@@ -12,12 +12,6 @@ java {
     }
 }
 
-ext {
-    version_sysml="0.46.0-SNAPSHOT"
-}
-
-
-
 publishing {
     publications {
         maven(MavenPublication) {
