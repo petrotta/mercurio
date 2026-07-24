@@ -5,6 +5,12 @@ on:
     tags:
       - "foundation-v*"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Resume publishing the release version from this ref
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -53,7 +59,7 @@ jobs:
         run: cargo package --workspace --no-verify --locked
 
   publish:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.publish)
     needs: qualify
     runs-on: ubuntu-latest
     environment: crates-io
@@ -100,18 +106,19 @@ jobs:
               return
             fi
 
-            for attempt in {1..12}; do
+            for attempt in {1..15}; do
               if cargo publish --locked --package "${package}"; then
                 return
               fi
               if published "${package}"; then
                 return
               fi
-              if [[ "${attempt}" -eq 12 ]]; then
+              if [[ "${attempt}" -eq 15 ]]; then
                 echo "failed to publish ${package} ${version}" >&2
                 return 1
               fi
-              sleep 10
+              echo "publish attempt ${attempt} failed; retrying ${package} in 60 seconds"
+              sleep 60
             done
           }
 
