@@ -1506,15 +1506,70 @@ impl AuthoringProject {
             final_texts.insert(path.clone(), content.clone());
         }
 
-        let expected_count = self.render_all_files().len();
-        let actual_count = final_texts.len();
-        let ok = expected_count == actual_count;
+        let Some(compiler) = self.source_compiler else {
+            // Without a compiler only the project shape can be checked.
+            let expected_count = self.render_all_files().len();
+            let actual_count = final_texts.len();
+            let ok = expected_count == actual_count;
+            return Ok(ValidationReport {
+                ok,
+                expected_element_count: expected_count,
+                actual_element_count: actual_count,
+                message: (!ok)
+                    .then(|| "rendered files do not match the authoring project shape".to_string()),
+            });
+        };
+
+        // The canonical render of the in-memory model is the semantic
+        // authority; the edited texts must compile to the same elements for
+        // the files they touch. A mismatch (or an edited text that fails to
+        // compile) reports !ok so write_back_mutation can fall back to the
+        // canonical rewrite instead of shipping a mis-spliced patch.
+        let canonical = match compiler(&self.render_all_files()) {
+            Ok(document) => document,
+            Err(err) => {
+                return Ok(ValidationReport {
+                    ok: false,
+                    expected_element_count: 0,
+                    actual_element_count: 0,
+                    message: Some(format!("canonical render failed to compile: {err}")),
+                });
+            }
+        };
+        let edited = match compiler(&final_texts) {
+            Ok(document) => document,
+            Err(err) => {
+                return Ok(ValidationReport {
+                    ok: false,
+                    expected_element_count: canonical.elements.len(),
+                    actual_element_count: 0,
+                    message: Some(format!("edited text failed to compile: {err}")),
+                });
+            }
+        };
+
+        let edited_paths = edited_files.keys().cloned().collect::<BTreeSet<_>>();
+        let expected = normalized_element_ids_for_files(&canonical, &edited_paths);
+        let actual = normalized_element_ids_for_files(&edited, &edited_paths);
+        let expected_element_count = expected.values().sum();
+        let actual_element_count = actual.values().sum();
+        let ok = expected == actual;
         Ok(ValidationReport {
             ok,
-            expected_element_count: expected_count,
-            actual_element_count: actual_count,
-            message: (!ok)
-                .then(|| "rendered files do not match the authoring project shape".to_string()),
+            expected_element_count,
+            actual_element_count,
+            message: (!ok).then(|| {
+                let mismatched = expected
+                    .keys()
+                    .filter(|id| expected.get(*id) != actual.get(*id))
+                    .chain(actual.keys().filter(|id| !expected.contains_key(*id)))
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                format!(
+                    "edited text diverges from the canonical model on: {}",
+                    mismatched.into_iter().collect::<Vec<_>>().join(", ")
+                )
+            }),
         })
     }
 
@@ -5341,6 +5396,49 @@ fn rendered_span_for_text(text: &str) -> RenderedSpan {
     }
 }
 
+/// Counts elements per normalized id for the given source files. Trailing
+/// id segments that only encode source position (`{line}`, `{line}_{col}`,
+/// `{line}.{col}`, ordinals) are stripped so a localized patch is not
+/// penalized for preserving the author's layout while the canonical render
+/// reflows it; content differences still surface as count mismatches.
+fn normalized_element_ids_for_files(
+    document: &KirDocument,
+    files: &BTreeSet<String>,
+) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for element in &document.elements {
+        let source_file = element
+            .properties
+            .get("metadata")
+            .and_then(Value::as_object)
+            .and_then(|metadata| metadata.get("source_file"))
+            .and_then(Value::as_str)
+            .map(|path| path.replace('\\', "/"));
+        if source_file.is_some_and(|path| files.contains(&path)) {
+            *counts
+                .entry(normalize_positional_id(&element.id))
+                .or_default() += 1;
+        }
+    }
+    counts
+}
+
+fn normalize_positional_id(id: &str) -> String {
+    let mut segments = id.split('.').collect::<Vec<_>>();
+    while segments.len() > 1 {
+        let last = segments[segments.len() - 1];
+        let positional = last
+            .split('_')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()));
+        if positional {
+            segments.pop();
+        } else {
+            break;
+        }
+    }
+    segments.join(".")
+}
+
 fn diff_element_ids(before: &KirDocument, after: &KirDocument) -> BTreeSet<String> {
     let before_ids = before
         .elements
@@ -7242,5 +7340,242 @@ mod tests {
         assert!(write_back.edited_files["a.model"].contains("package A {\n}\n"));
         assert!(write_back.edited_files["b.model"].contains("Vehicle"));
         assert!(write_back.validation.ok);
+    }
+
+    const COMMENTED_SOURCE: &str = "// keep me\npackage Demo {\n    part def Vehicle {\n        part engine;\n    }\n}\n";
+
+    fn ast_span(
+        start_line: usize,
+        start_col: usize,
+        end_line: usize,
+        end_col: usize,
+    ) -> crate::frontend::ast::SourceSpan {
+        crate::frontend::ast::SourceSpan {
+            start_line,
+            start_col,
+            end_line,
+            end_col,
+        }
+    }
+
+    /// Hand-built AST mirroring `COMMENTED_SOURCE`, spans included, so the
+    /// localized write-back machinery can be exercised without a parser.
+    fn commented_project() -> super::AuthoringProject {
+        use crate::frontend::ast;
+
+        let engine = ast::Declaration::GenericUsage(ast::GenericUsageDecl {
+            keyword: "part".to_string(),
+            name: "engine".to_string(),
+            is_implicit_name: false,
+            ty: None,
+            reference_target: None,
+            allocation_source: None,
+            allocation_target: None,
+            metadata_properties: BTreeMap::new(),
+            multiplicity: None,
+            expression: None,
+            additional_types: Vec::new(),
+            specializes: Vec::new(),
+            subsets: Vec::new(),
+            redefines: Vec::new(),
+            body_members: Vec::new(),
+            docs: Vec::new(),
+            modifiers: Vec::new(),
+            span: ast_span(4, 9, 4, 20),
+        });
+        let vehicle = ast::Declaration::GenericDefinition(ast::GenericDefinitionDecl {
+            keyword: "part".to_string(),
+            name: "Vehicle".to_string(),
+            specializes: Vec::new(),
+            members: vec![engine],
+            docs: Vec::new(),
+            modifiers: Vec::new(),
+            span: ast_span(3, 5, 5, 5),
+        });
+        let package = ast::PackageDecl {
+            name: ast::QualifiedName {
+                segments: vec!["Demo".to_string()],
+                span: ast_span(2, 9, 2, 12),
+            },
+            members: vec![vehicle],
+            imports: Vec::new(),
+            definitions: Vec::new(),
+            docs: Vec::new(),
+            modifiers: Vec::new(),
+            span: ast_span(2, 1, 6, 1),
+        };
+        let module = crate::frontend::ast::ParsedModule {
+            package: Some(package),
+            members: Vec::new(),
+            imports: Vec::new(),
+            definitions: Vec::new(),
+        };
+        super::AuthoringProject::from_parsed_modules(
+            BTreeMap::from([("demo.sysml".to_string(), module)]),
+            BTreeMap::from([("demo.sysml".to_string(), COMMENTED_SOURCE.to_string())]),
+        )
+        .unwrap()
+    }
+
+    fn replace_node(anchor: &str) -> super::RewriteInstruction {
+        super::RewriteInstruction::ReplaceNode {
+            file: "demo.sysml".to_string(),
+            anchor_qname: anchor.to_string(),
+            render_qname: anchor.to_string(),
+        }
+    }
+
+    fn manual_mutation(rewrite_plan: Vec<super::RewriteInstruction>) -> super::MutationResult {
+        super::MutationResult {
+            changed_files: ["demo.sysml".to_string()].into(),
+            changed_declarations: Default::default(),
+            affected_element_ids: Default::default(),
+            rewrite_plan,
+        }
+    }
+
+    #[test]
+    fn mutation_result_merge_unions_fields_and_keeps_plan_order() {
+        let mut merged = manual_mutation(vec![replace_node("Demo.Vehicle")]);
+        merged.changed_declarations.insert("Demo.Vehicle".to_string());
+        merged.affected_element_ids.insert("type.Demo.Vehicle".to_string());
+
+        let mut other = manual_mutation(vec![replace_node("Demo.Vehicle.engine")]);
+        other.changed_files.insert("other.sysml".to_string());
+        other
+            .changed_declarations
+            .insert("Demo.Vehicle.engine".to_string());
+        other
+            .affected_element_ids
+            .insert("feature.Demo.Vehicle.engine".to_string());
+
+        merged.merge(other);
+
+        assert!(merged.changed_files.contains("demo.sysml"));
+        assert!(merged.changed_files.contains("other.sysml"));
+        assert!(merged.changed_declarations.contains("Demo.Vehicle"));
+        assert!(merged.changed_declarations.contains("Demo.Vehicle.engine"));
+        assert!(merged.affected_element_ids.contains("type.Demo.Vehicle"));
+        assert!(
+            merged
+                .affected_element_ids
+                .contains("feature.Demo.Vehicle.engine")
+        );
+        assert_eq!(
+            merged.rewrite_plan,
+            vec![
+                replace_node("Demo.Vehicle"),
+                replace_node("Demo.Vehicle.engine"),
+            ]
+        );
+    }
+
+    #[test]
+    fn localized_writeback_dedupes_and_subsumes_rewrite_instructions() {
+        let mut project = commented_project();
+        // One duplicate anchor and one anchor whose span sits inside it: the
+        // normalized plan must collapse to a single patch.
+        let mutation = manual_mutation(vec![
+            replace_node("Demo.Vehicle"),
+            replace_node("Demo.Vehicle"),
+            replace_node("Demo.Vehicle.engine"),
+        ]);
+
+        let write_back = project.write_back_mutation(&mutation).unwrap();
+
+        assert_eq!(write_back.mode, super::WriteBackMode::LocalizedPatch);
+        assert_eq!(write_back.changed_spans["demo.sysml"].len(), 1);
+        let text = write_back.edited_files.get("demo.sysml").unwrap();
+        assert!(text.contains("// keep me"));
+        assert!(text.contains("part engine;"));
+    }
+
+    #[test]
+    fn merged_plan_drops_unmapped_child_covered_by_ancestor_container() {
+        let mut project = commented_project();
+        let mut merged = project
+            .apply_mutation(Mutation::AddUsage {
+                container: ContainerSelector::Declaration {
+                    qualified_name: qname("Demo.Vehicle"),
+                },
+                keyword: "part".to_string(),
+                name: "wheel".to_string(),
+                ty: None,
+                specializes: Vec::new(),
+            })
+            .unwrap();
+        // The doc edit anchors at the just-created usage, which has no
+        // parse-time span; the merged plan must fall back to the ancestor
+        // container re-render instead of the canonical rewrite.
+        let doc_edit = project
+            .apply_semantic_edit(SemanticEdit::SetAttribute {
+                element: qname("Demo.Vehicle.wheel"),
+                attribute: "doc".to_string(),
+                value: json!("Front axle."),
+                policy: AttributeWritePolicy::UpsertDirect,
+            })
+            .unwrap();
+        merged.merge(doc_edit);
+
+        let write_back = project.write_back_mutation(&merged).unwrap();
+
+        assert_eq!(write_back.mode, super::WriteBackMode::LocalizedPatch);
+        let text = write_back.edited_files.get("demo.sysml").unwrap();
+        assert!(text.contains("// keep me"));
+        assert!(text.contains("part wheel"));
+        assert!(text.contains("Front axle."));
+    }
+
+    #[test]
+    fn unmapped_anchor_without_ancestor_falls_back_to_canonical() {
+        let mut project = commented_project();
+        let mutation = manual_mutation(vec![replace_node("Demo.Ghost")]);
+
+        let write_back = project.write_back_mutation(&mutation).unwrap();
+
+        assert_eq!(write_back.mode, super::WriteBackMode::CanonicalRewrite);
+    }
+
+    #[test]
+    fn write_back_invalidates_source_map_so_stale_spans_never_splice() {
+        let mut project = commented_project();
+        let first = project
+            .apply_mutation(Mutation::AddUsage {
+                container: ContainerSelector::Declaration {
+                    qualified_name: qname("Demo.Vehicle"),
+                },
+                keyword: "part".to_string(),
+                name: "wheel".to_string(),
+                ty: None,
+                specializes: Vec::new(),
+            })
+            .unwrap();
+        let first_write_back = project.write_back_mutation(&first).unwrap();
+        assert_eq!(
+            first_write_back.mode,
+            super::WriteBackMode::LocalizedPatch
+        );
+
+        // The accepted write-back rewrote the file, so the parse-time spans
+        // are stale; the next mutation must not splice with them.
+        let second = project
+            .apply_mutation(Mutation::AddUsage {
+                container: ContainerSelector::Declaration {
+                    qualified_name: qname("Demo.Vehicle"),
+                },
+                keyword: "part".to_string(),
+                name: "axle".to_string(),
+                ty: None,
+                specializes: Vec::new(),
+            })
+            .unwrap();
+        let second_write_back = project.write_back_mutation(&second).unwrap();
+        assert_eq!(
+            second_write_back.mode,
+            super::WriteBackMode::CanonicalRewrite
+        );
+        assert!(
+            second_write_back.edited_files["demo.sysml"].contains("part axle;")
+        );
     }
 }
