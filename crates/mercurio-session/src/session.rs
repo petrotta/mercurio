@@ -463,6 +463,41 @@ impl ModelWorkspace {
             .retain(|_, sender| sender.send(event.clone()).is_ok());
     }
 
+    /// Publishes a snapshot produced by an applied mutation: the transition is
+    /// recorded on the command stack (so it is undoable via [`Self::undo`])
+    /// and the change event is emitted to subscribers with the next sequence
+    /// number.
+    pub fn publish_applied(&self, snapshot: WorkspaceSnapshot, event: ModelChangeEvent) {
+        self.publish_snapshot(snapshot, event);
+    }
+
+    /// Publishes a snapshot that replaces the current one without recording a
+    /// command-stack entry — for out-of-band changes such as text edits or
+    /// full workspace rebuilds. The current revision still advances, so a
+    /// later [`Self::undo`] of an older command-stack record fails its
+    /// staleness guard instead of silently clobbering the replaced state.
+    pub fn publish_replaced(&self, snapshot: WorkspaceSnapshot, event: ModelChangeEvent) {
+        self.publish_snapshot_untracked(snapshot, event);
+    }
+
+    /// Number of records currently on the undo stack.
+    pub fn undo_depth(&self) -> usize {
+        self.command_stack
+            .read()
+            .expect("workspace command stack lock poisoned")
+            .undo
+            .len()
+    }
+
+    /// Number of records currently on the redo stack.
+    pub fn redo_depth(&self) -> usize {
+        self.command_stack
+            .read()
+            .expect("workspace command stack lock poisoned")
+            .redo
+            .len()
+    }
+
     pub fn can_undo(&self) -> bool {
         !self
             .command_stack
@@ -1497,6 +1532,109 @@ mod tests {
         assert_eq!(workspace.undo().unwrap(), initial);
         assert!(workspace.can_redo());
         assert_eq!(workspace.redo().unwrap(), committed.new_revision);
+    }
+
+    fn document_with_package(name: &str) -> KirDocument {
+        KirDocument {
+            metadata: BTreeMap::new(),
+            elements: vec![KirElement {
+                id: format!("pkg.{name}"),
+                kind: "Model::Package".to_string(),
+                layer: 2,
+                properties: BTreeMap::from([(
+                    "declared_name".to_string(),
+                    Value::String(name.to_string()),
+                )]),
+            }],
+        }
+    }
+
+    fn change_event(
+        before: &WorkspaceSnapshot,
+        after: &WorkspaceSnapshot,
+        mutation_id: &str,
+    ) -> ModelChangeEvent {
+        ModelChangeEvent::new(
+            before.revision.clone(),
+            after.revision.clone(),
+            ModelChangeProvenance {
+                mutation_id: mutation_id.to_string(),
+                actor: None,
+            },
+            diff_kir_documents(&before.kir, &after.kir),
+        )
+    }
+
+    #[test]
+    fn publish_applied_tracks_command_stack_and_emits_event() {
+        let workspace = ModelWorkspace::new(WorkspaceSnapshot::new(empty_document()).unwrap());
+        let subscription = workspace.subscribe();
+        let initial = workspace.current_snapshot();
+        assert_eq!(workspace.undo_depth(), 0);
+        assert_eq!(workspace.redo_depth(), 0);
+
+        let applied = WorkspaceSnapshot::new(document_with_package("Applied")).unwrap();
+        let event = change_event(&initial, &applied, "apply-1");
+        let applied_revision = applied.revision.clone();
+        workspace.publish_applied(applied, event);
+
+        let received = subscription.recv().unwrap();
+        assert_eq!(received.sequence, 1);
+        assert_eq!(received.provenance.mutation_id, "apply-1");
+        assert_eq!(received.revision_after, applied_revision);
+        assert_eq!(workspace.current_snapshot().revision, applied_revision);
+        assert!(workspace.can_undo());
+        assert_eq!(workspace.undo_depth(), 1);
+        assert_eq!(workspace.redo_depth(), 0);
+
+        assert_eq!(workspace.undo().unwrap(), initial.revision);
+        assert_eq!(workspace.undo_depth(), 0);
+        assert_eq!(workspace.redo_depth(), 1);
+        assert_eq!(workspace.redo().unwrap(), applied_revision);
+        assert_eq!(workspace.undo_depth(), 1);
+        assert_eq!(workspace.redo_depth(), 0);
+    }
+
+    #[test]
+    fn publish_replaced_advances_revision_without_command_stack_entry() {
+        let workspace = ModelWorkspace::new(WorkspaceSnapshot::new(empty_document()).unwrap());
+        let subscription = workspace.subscribe();
+        let initial = workspace.current_snapshot();
+
+        let replaced = WorkspaceSnapshot::new(document_with_package("Replaced")).unwrap();
+        let event = change_event(&initial, &replaced, "text-edit");
+        let replaced_revision = replaced.revision.clone();
+        workspace.publish_replaced(replaced, event);
+
+        let received = subscription.recv().unwrap();
+        assert_eq!(received.sequence, 1);
+        assert_eq!(received.provenance.mutation_id, "text-edit");
+        assert_eq!(workspace.current_snapshot().revision, replaced_revision);
+        assert!(!workspace.can_undo());
+        assert_eq!(workspace.undo_depth(), 0);
+        assert_eq!(workspace.redo_depth(), 0);
+    }
+
+    #[test]
+    fn publish_replaced_after_apply_makes_undo_stale() {
+        let workspace = ModelWorkspace::new(WorkspaceSnapshot::new(empty_document()).unwrap());
+        let initial = workspace.current_snapshot();
+
+        let applied = WorkspaceSnapshot::new(document_with_package("Applied")).unwrap();
+        let event = change_event(&initial, &applied, "apply-1");
+        workspace.publish_applied(applied, event);
+        assert_eq!(workspace.undo_depth(), 1);
+
+        let current = workspace.current_snapshot();
+        let replaced = WorkspaceSnapshot::new(document_with_package("Edited")).unwrap();
+        let event = change_event(&current, &replaced, "text-edit");
+        workspace.publish_replaced(replaced, event);
+        assert_eq!(workspace.undo_depth(), 1);
+
+        let error = workspace.undo().unwrap_err();
+        assert!(matches!(error, SessionError::StaleWorkspace { .. }));
+        assert_eq!(workspace.undo_depth(), 0);
+        assert_eq!(workspace.redo_depth(), 0);
     }
 
     #[test]
