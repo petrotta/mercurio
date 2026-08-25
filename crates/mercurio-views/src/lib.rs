@@ -989,21 +989,26 @@ fn diagram_kind_descriptor(kind: DiagramKindDto) -> ViewKindDescriptor {
 
 fn table_kind_descriptor(kind: TableKindDto) -> ViewKindDescriptor {
     let id = format!("table.{}", table_kind_name(&kind));
-    let (title, summary, root_metatypes) = match kind {
+    // `editable` is honest per DA-3: true only where cell-edit gestures are
+    // wired in the workbench (Requirements name/text/status, Elements name).
+    let (title, summary, root_metatypes, editable) = match kind {
         TableKindDto::ModelElements => (
             "Model Elements Table",
             "Tabular model element inventory.",
             vec![],
+            false,
         ),
         TableKindDto::Elements => (
             "Elements Table",
             "Tabular view over a selected element type.",
             vec![],
+            true,
         ),
         TableKindDto::Requirements => (
             "Requirements Table",
             "Requirement rows with standard requirement columns.",
             vec!["RequirementDefinition", "RequirementUsage"],
+            true,
         ),
     };
 
@@ -1020,7 +1025,7 @@ fn table_kind_descriptor(kind: TableKindDto) -> ViewKindDescriptor {
             ViewScopeDto::Explicit,
         ],
         animatable: false,
-        editable: false,
+        editable,
     }
 }
 
@@ -5583,6 +5588,19 @@ mod tests {
         assert_eq!(state_machine.family, ViewFamilyDto::Diagram);
         assert_eq!(state_machine.root, ViewRootRequirementDto::Required);
         assert!(state_machine.animatable);
+    }
+
+    #[test]
+    fn table_descriptors_pin_per_kind_editable_flags() {
+        let editable_by_id = list_view_kinds()
+            .into_iter()
+            .map(|descriptor| (descriptor.id, descriptor.editable))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        // DA-3: editable is true only where cell-edit gestures are wired.
+        assert_eq!(editable_by_id.get("table.requirements"), Some(&true));
+        assert_eq!(editable_by_id.get("table.elements"), Some(&true));
+        assert_eq!(editable_by_id.get("table.model_elements"), Some(&false));
     }
 
     #[test]
