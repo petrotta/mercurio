@@ -1,6 +1,7 @@
 ﻿use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(any(test, feature = "toy-parser"))]
 use serde_json::json;
@@ -255,12 +256,24 @@ pub enum ContainerSelector {
     Declaration { qualified_name: QualifiedName },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MutationResult {
     pub changed_files: BTreeSet<String>,
     pub changed_declarations: BTreeSet<String>,
     pub affected_element_ids: BTreeSet<String>,
     rewrite_plan: Vec<RewriteInstruction>,
+}
+
+impl MutationResult {
+    /// Folds another mutation's outcome into this one so a multi-operation
+    /// plan can be written back in a single pass. Rewrite instructions keep
+    /// their application order; write-back normalization dedupes them.
+    pub fn merge(&mut self, other: MutationResult) {
+        self.changed_files.extend(other.changed_files);
+        self.changed_declarations.extend(other.changed_declarations);
+        self.affected_element_ids.extend(other.affected_element_ids);
+        self.rewrite_plan.extend(other.rewrite_plan);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,7 +284,8 @@ pub struct WriteBackResult {
     pub validation: ValidationReport,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WriteBackMode {
     LocalizedPatch,
     CanonicalRewrite,
@@ -1306,6 +1320,10 @@ impl AuthoringProject {
         for (path, content) in edited_files {
             let file = self.ensure_file_mut(path);
             file.original_text = Some(content.clone());
+            // The parse-time spans no longer describe the edited text; keeping
+            // them would let a later localized write-back splice with stale
+            // offsets. A fresh parse is required to re-enable localization.
+            file.source_map = None;
         }
         Ok(())
     }
@@ -1340,6 +1358,8 @@ impl AuthoringProject {
                     "localized write-back requires source provenance for `{file_path}`"
                 ))
             })?;
+            let instructions =
+                normalize_rewrite_instructions(instructions, source_map, &file.module)?;
 
             let mut patches = Vec::new();
             let mut spans = Vec::new();
@@ -5144,6 +5164,113 @@ fn group_rewrites_by_file(
             .push(rewrite.clone());
     }
     grouped
+}
+
+/// Prepares one file's rewrite instructions for span splicing: drops exact
+/// duplicates, drops instructions whose anchor span is covered by another
+/// instruction's re-render, and drops instructions for declarations created
+/// after parse time (no source span) when an ancestor container instruction
+/// re-renders them anyway. Any instruction that survives without a source
+/// span — and any full-file rewrite — is not localizable, so the caller's
+/// canonical fallback takes over via the returned error.
+fn normalize_rewrite_instructions(
+    instructions: Vec<RewriteInstruction>,
+    source_map: &FileSourceMap,
+    module: &AuthoringModule,
+) -> Result<Vec<RewriteInstruction>, AuthoringError> {
+    let mut deduped: Vec<RewriteInstruction> = Vec::new();
+    for instruction in instructions {
+        if !deduped.contains(&instruction) {
+            deduped.push(instruction);
+        }
+    }
+
+    let mut anchors = Vec::with_capacity(deduped.len());
+    for instruction in &deduped {
+        let anchor_qname = match instruction {
+            RewriteInstruction::FullFile { .. } => {
+                return Err(AuthoringError::Unsupported(
+                    "full-file rewrite is not localized".to_string(),
+                ));
+            }
+            RewriteInstruction::ReplaceNode { anchor_qname, .. } => anchor_qname.clone(),
+            RewriteInstruction::ReplaceContainer {
+                anchor_qname: Some(anchor_qname),
+                ..
+            } => anchor_qname.clone(),
+            RewriteInstruction::ReplaceContainer {
+                anchor_qname: None, ..
+            } => {
+                return Err(AuthoringError::Unsupported(
+                    "module-level localized replacement is unsupported".to_string(),
+                ));
+            }
+        };
+        let span = anchor_span(&anchor_qname, source_map, module);
+        anchors.push((anchor_qname, span));
+    }
+
+    let mut kept = Vec::with_capacity(deduped.len());
+    for (index, instruction) in deduped.iter().enumerate() {
+        let (anchor_qname, span) = &anchors[index];
+        let Some(span) = span else {
+            let covered_by_ancestor = anchors.iter().any(|(other_qname, other_span)| {
+                other_span.is_some() && is_qname_ancestor(other_qname, anchor_qname)
+            });
+            if covered_by_ancestor {
+                continue;
+            }
+            return Err(AuthoringError::Unsupported(format!(
+                "missing source span for `{anchor_qname}`"
+            )));
+        };
+        let subsumed = anchors
+            .iter()
+            .enumerate()
+            .any(|(other_index, (_, other_span))| {
+                other_index != index
+                    && other_span.as_ref().is_some_and(|other_span| {
+                        span_contains(other_span, span)
+                            && (other_span != span || other_index < index)
+                    })
+            });
+        if subsumed {
+            continue;
+        }
+        kept.push(instruction.clone());
+    }
+    Ok(kept)
+}
+
+fn anchor_span(
+    anchor_qname: &str,
+    source_map: &FileSourceMap,
+    module: &AuthoringModule,
+) -> Option<SourceSpan> {
+    if module
+        .package
+        .as_ref()
+        .is_some_and(|package| package.name.as_dot_string() == anchor_qname)
+    {
+        if let Some(package) = &source_map.package {
+            return Some(package.span.clone());
+        }
+    }
+    source_map
+        .declarations
+        .get(anchor_qname)
+        .map(|node| node.span.clone())
+}
+
+fn is_qname_ancestor(ancestor: &str, descendant: &str) -> bool {
+    descendant.len() > ancestor.len()
+        && descendant.starts_with(ancestor)
+        && descendant.as_bytes()[ancestor.len()] == b'.'
+}
+
+fn span_contains(outer: &SourceSpan, inner: &SourceSpan) -> bool {
+    (outer.start_line, outer.start_col) <= (inner.start_line, inner.start_col)
+        && (inner.end_line, inner.end_col) <= (outer.end_line, outer.end_col)
 }
 
 fn validate_non_overlapping_patches(
