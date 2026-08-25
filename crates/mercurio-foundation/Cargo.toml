@@ -3,12 +3,20 @@ name = "mercurio-foundation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Public Rust facade for Mercurio's language-neutral semantic modeling foundation."
+description = "Language-neutral semantic modeling foundation, KIR graph, runtime, and services for Mercurio."
 repository.workspace = true
 readme.workspace = true
 rust-version.workspace = true
+publish = true
 keywords = ["modeling", "semantic", "sysml", "simulation"]
 categories = ["data-structures", "development-tools"]
 
+[features]
+default = []
+toy-parser = []
+
 [dependencies]
-mercurio-core = { path = "../mercurio-core", version = "0.85.0" }
+rhai.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zip.workspace = true

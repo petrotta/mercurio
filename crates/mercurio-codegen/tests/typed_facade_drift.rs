@@ -1,23 +1,31 @@
 use std::path::PathBuf;
 
 use mercurio_codegen::{generate_python_facades, generate_typed_facades};
-use mercurio_kir::KirDocument;
+use mercurio_foundation::KirDocument;
 
-#[test]
-fn checked_in_typed_facades_match_the_pinned_sysml_metamodel()
--> Result<(), Box<dyn std::error::Error>> {
+fn checkout_roots() -> Result<(PathBuf, PathBuf), Box<dyn std::error::Error>> {
     let foundation_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|path| path.parent())
         .ok_or("mercurio-codegen must be nested under mercurio-foundation/crates")?
         .to_path_buf();
-    let repository_root = foundation_root
-        .parent()
-        .ok_or("mercurio-foundation must be nested under the repository root")?;
+    let repository_root = std::env::var_os("MERCURIO_WORKSPACE_ROOT")
+        .map(PathBuf::from)
+        .or_else(|| foundation_root.parent().map(PathBuf::from))
+        .ok_or("set MERCURIO_WORKSPACE_ROOT to the checkout containing sibling repositories")?;
+
+    Ok((foundation_root, repository_root))
+}
+
+#[test]
+fn checked_in_typed_facades_match_the_pinned_sysml_metamodel()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (foundation_root, repository_root) = checkout_roots()?;
     let metamodel_path = repository_root.join(
         "mercurio-sysml/resources/metamodels/sysml-2.0-metamodel-0.57.0/stdlib/stdlib.full.kir.json",
     );
-    let generated_path = foundation_root.join("crates/mercurio-model/src/generated_facades.rs");
+    let generated_path =
+        foundation_root.join("crates/mercurio-foundation/src/modules/model/generated_facades.rs");
 
     let document: KirDocument = serde_json::from_slice(&std::fs::read(metamodel_path)?)?;
     let expected = generate_typed_facades(&document)?;
@@ -33,14 +41,7 @@ fn checked_in_typed_facades_match_the_pinned_sysml_metamodel()
 #[test]
 fn checked_in_python_facades_match_the_pinned_sysml_metamodel()
 -> Result<(), Box<dyn std::error::Error>> {
-    let foundation_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|path| path.parent())
-        .ok_or("mercurio-codegen must be nested under mercurio-foundation/crates")?
-        .to_path_buf();
-    let repository_root = foundation_root
-        .parent()
-        .ok_or("mercurio-foundation must be nested under the repository root")?;
+    let (_, repository_root) = checkout_roots()?;
     let metamodel_path = repository_root.join(
         "mercurio-sysml/resources/metamodels/sysml-2.0-metamodel-0.57.0/stdlib/stdlib.full.kir.json",
     );
