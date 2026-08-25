@@ -16,6 +16,22 @@ pub struct QualifiedName {
     pub span: SourceSpan,
 }
 
+/// The surface form of a preserved `//` or non-doc `/* */` comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CommentKind {
+    Line,
+    Block,
+}
+
+/// A non-doc comment preserved on the declaration it precedes. The text is
+/// the raw interior (after `//`, or between `/*` and `*/`) so a re-render can
+/// reproduce the original bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommentNote {
+    pub text: String,
+    pub kind: CommentKind,
+}
+
 impl QualifiedName {
     pub fn as_colon_string(&self) -> String {
         self.segments.join("::")
@@ -92,6 +108,8 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportDecl {
     pub path: QualifiedName,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
     pub span: SourceSpan,
@@ -111,6 +129,8 @@ pub struct GenericDefinitionDecl {
     pub name: String,
     pub specializes: Vec<QualifiedName>,
     pub members: Vec<Declaration>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
     pub span: SourceSpan,
@@ -134,6 +154,8 @@ pub struct GenericUsageDecl {
     pub subsets: Vec<QualifiedName>,
     pub redefines: Vec<QualifiedName>,
     pub body_members: Vec<Declaration>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
     pub span: SourceSpan,
@@ -143,6 +165,8 @@ pub struct GenericUsageDecl {
 pub struct AliasDecl {
     pub name: String,
     pub target: QualifiedName,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
     pub span: SourceSpan,
@@ -188,6 +212,8 @@ pub struct PackageDecl {
     pub members: Vec<Declaration>,
     pub imports: Vec<ImportDecl>,
     pub definitions: Vec<GenericDefinitionDecl>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
     pub span: SourceSpan,

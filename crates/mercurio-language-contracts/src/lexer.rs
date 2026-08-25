@@ -1,10 +1,27 @@
-use crate::ast::SourceSpan;
+use crate::ast::{CommentKind, SourceSpan};
 use crate::diagnostics::Diagnostic;
+
+/// A `//` or non-doc `/* */` comment skipped before a token. Doc-candidate
+/// blocks (the `comment … /* */` usage body) and `doc` bodies are language
+/// content, not trivia, and are never collected here. The text is the raw
+/// interior — after `//`, or between `/*` and `*/` — so re-rendering
+/// `//{text}` or `/*{text}*/` reproduces the original bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommentTrivia {
+    pub text: String,
+    pub kind: CommentKind,
+    pub span: SourceSpan,
+    /// True when nothing but whitespace precedes the comment on its line;
+    /// false for a trailing comment after code on the same line.
+    pub own_line: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     pub kind: TokenKind,
     pub span: SourceSpan,
+    /// Comment trivia skipped between the previous token and this one.
+    pub leading_trivia: Vec<CommentTrivia>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +84,8 @@ struct Lexer<'a> {
     line: usize,
     col: usize,
     comment_doc_candidate: bool,
+    pending_trivia: Vec<CommentTrivia>,
+    last_content_line: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -78,6 +97,8 @@ impl<'a> Lexer<'a> {
             line: 1,
             col: 1,
             comment_doc_candidate: false,
+            pending_trivia: Vec::new(),
+            last_content_line: 0,
         }
     }
 
@@ -97,6 +118,7 @@ impl<'a> Lexer<'a> {
                         end_line: start_line,
                         end_col: start_col,
                     },
+                    leading_trivia: std::mem::take(&mut self.pending_trivia),
                 });
                 return Ok(tokens);
             };
@@ -280,7 +302,9 @@ impl<'a> Lexer<'a> {
                     end_line: self.line,
                     end_col: self.col.saturating_sub(1),
                 },
+                leading_trivia: std::mem::take(&mut self.pending_trivia),
             });
+            self.last_content_line = self.line;
         }
     }
 
@@ -380,23 +404,42 @@ impl<'a> Lexer<'a> {
                     if self.peek_next_char() == Some('/')
                         && self.bytes.get(self.index + 2) == Some(&b'*') =>
                 {
-                    self.consume_line_prefixed_block_comment()?;
+                    let start_line = self.line;
+                    let start_col = self.col;
+                    let own_line = start_line > self.last_content_line;
+                    let text = self.consume_line_prefixed_block_comment()?;
+                    self.push_comment_trivia(text, CommentKind::Block, start_line, start_col, own_line);
                 }
                 Some('/') if self.peek_next_char() == Some('/') => {
+                    let start_line = self.line;
+                    let start_col = self.col;
+                    let own_line = start_line > self.last_content_line;
                     self.advance_char();
                     self.advance_char();
+                    let text_start = self.index;
+                    let mut text_end = self.index;
                     while let Some(ch) = self.peek_char() {
-                        self.advance_char();
                         if ch == '\n' {
+                            self.advance_char();
                             break;
                         }
+                        self.advance_char();
+                        text_end = self.index;
                     }
+                    let text = self.input[text_start..text_end]
+                        .trim_end_matches('\r')
+                        .to_string();
+                    self.push_comment_trivia(text, CommentKind::Line, start_line, start_col, own_line);
                 }
                 Some('/') if self.peek_next_char() == Some('*') && self.comment_doc_candidate => {
                     return Ok(());
                 }
                 Some('/') if self.peek_next_char() == Some('*') => {
-                    self.consume_block_comment()?;
+                    let start_line = self.line;
+                    let start_col = self.col;
+                    let own_line = start_line > self.last_content_line;
+                    let text = self.consume_block_comment()?;
+                    self.push_comment_trivia(text, CommentKind::Block, start_line, start_col, own_line);
                 }
                 _ => return Ok(()),
             }
@@ -511,15 +554,27 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn consume_block_comment(&mut self) -> Result<(), Diagnostic> {
+    fn consume_block_comment(&mut self) -> Result<String, Diagnostic> {
         self.advance_char();
         self.advance_char();
+        self.consume_block_comment_interior()
+    }
 
+    fn consume_line_prefixed_block_comment(&mut self) -> Result<String, Diagnostic> {
+        self.advance_char();
+        self.advance_char();
+        self.advance_char();
+        self.consume_block_comment_interior()
+    }
+
+    fn consume_block_comment_interior(&mut self) -> Result<String, Diagnostic> {
+        let start = self.index;
         while let Some(ch) = self.peek_char() {
             if ch == '*' && self.peek_next_char() == Some('/') {
+                let text = self.input[start..self.index].to_string();
                 self.advance_char();
                 self.advance_char();
-                return Ok(());
+                return Ok(text);
             }
             self.advance_char();
         }
@@ -527,21 +582,25 @@ impl<'a> Lexer<'a> {
         Err(Diagnostic::new("unterminated block comment", None))
     }
 
-    fn consume_line_prefixed_block_comment(&mut self) -> Result<(), Diagnostic> {
-        self.advance_char();
-        self.advance_char();
-        self.advance_char();
-
-        while let Some(ch) = self.peek_char() {
-            if ch == '*' && self.peek_next_char() == Some('/') {
-                self.advance_char();
-                self.advance_char();
-                return Ok(());
-            }
-            self.advance_char();
-        }
-
-        Err(Diagnostic::new("unterminated block comment", None))
+    fn push_comment_trivia(
+        &mut self,
+        text: String,
+        kind: CommentKind,
+        start_line: usize,
+        start_col: usize,
+        own_line: bool,
+    ) {
+        self.pending_trivia.push(CommentTrivia {
+            text,
+            kind,
+            span: SourceSpan {
+                start_line,
+                start_col,
+                end_line: self.line,
+                end_col: self.col.saturating_sub(1),
+            },
+            own_line,
+        });
     }
 
     fn peek_char(&self) -> Option<char> {
@@ -575,7 +634,7 @@ fn is_ident_continue(ch: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{TokenKind, lex};
+    use super::{CommentKind, TokenKind, lex};
 
     #[test]
     fn lexes_minimal_model_subset() {
@@ -780,6 +839,67 @@ mod tests {
             tokens
                 .iter()
                 .any(|token| matches!(token.kind, TokenKind::Question))
+        );
+    }
+
+    #[test]
+    fn collects_leading_comment_trivia_on_the_next_token() {
+        let tokens = lex("// header note\npackage Demo {\n    /* engine block */\n    part def Engine;\n}\n")
+            .unwrap();
+
+        let package = tokens
+            .iter()
+            .find(|token| matches!(token.kind, TokenKind::Package))
+            .unwrap();
+        assert_eq!(package.leading_trivia.len(), 1);
+        assert_eq!(package.leading_trivia[0].text, " header note");
+        assert_eq!(package.leading_trivia[0].kind, CommentKind::Line);
+        assert!(package.leading_trivia[0].own_line);
+
+        let part = tokens
+            .iter()
+            .find(|token| matches!(token.kind, TokenKind::Part))
+            .unwrap();
+        assert_eq!(part.leading_trivia.len(), 1);
+        assert_eq!(part.leading_trivia[0].text, " engine block ");
+        assert_eq!(part.leading_trivia[0].kind, CommentKind::Block);
+        assert!(part.leading_trivia[0].own_line);
+    }
+
+    #[test]
+    fn marks_trailing_same_line_comments_as_not_own_line() {
+        let tokens = lex("part def Engine; // trailing note\npart def Chassis;").unwrap();
+
+        let second_part = tokens
+            .iter()
+            .filter(|token| matches!(token.kind, TokenKind::Part))
+            .nth(1)
+            .unwrap();
+        assert_eq!(second_part.leading_trivia.len(), 1);
+        assert_eq!(second_part.leading_trivia[0].text, " trailing note");
+        assert!(!second_part.leading_trivia[0].own_line);
+    }
+
+    #[test]
+    fn does_not_collect_doc_bodies_or_doc_candidate_blocks_as_trivia() {
+        let tokens =
+            lex("package Demo { doc /* docs */ comment /* about */ part def Engine; }").unwrap();
+
+        assert!(
+            tokens
+                .iter()
+                .all(|token| token.leading_trivia.is_empty()),
+            "doc and comment-usage bodies must not be captured as trivia"
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|token| matches!(&token.kind, TokenKind::Doc(value) if value == "docs"))
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|token| matches!(&token.kind, TokenKind::BlockDoc(value) if value == "about"))
         );
     }
 

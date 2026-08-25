@@ -27,7 +27,7 @@ pub use expression::{
     ExpressionIrError, ExpressionPathRoot, ExpressionPathSegment, ExpressionValidationError,
     UnaryExpressionOp,
 };
-pub use lexer::{Token, TokenKind, lex};
+pub use lexer::{CommentTrivia, Token, TokenKind, lex};
 pub use project::{ProjectSourceSelectionError, select_project_source_paths};
 pub use reports::{ParseReport, SemanticCompileReport, SemanticCompileStatus};
 pub use service::{CompileContext, LanguageRegistry, LanguageService};

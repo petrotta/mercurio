@@ -7,8 +7,8 @@ use serde_json::Value;
 use serde_json::json;
 
 use crate::frontend::ast::{
-    BinaryOp, Declaration as AstDeclaration, Expr, LiteralExpr, MultiplicityRange, PackageDecl,
-    ParsedModule, SourceSpan, UnaryOp,
+    BinaryOp, CommentKind, CommentNote, Declaration as AstDeclaration, Expr, LiteralExpr,
+    MultiplicityRange, PackageDecl, ParsedModule, SourceSpan, UnaryOp,
 };
 use crate::frontend::diagnostics::Diagnostic;
 #[cfg(any(test, feature = "toy-parser"))]
@@ -81,6 +81,12 @@ pub struct AuthoringModule {
 pub struct Package {
     pub name: QualifiedName,
     pub members: Vec<Declaration>,
+    /// Leading own-line `//` and non-doc `/* */` comments. Rendered by the
+    /// declaration's *container* (never by `render(..)` itself) so a
+    /// localized splice — whose span starts at the declaration keyword,
+    /// below any leading comments kept in the original text — cannot
+    /// duplicate them.
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
 }
@@ -88,6 +94,7 @@ pub struct Package {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Import {
     pub path: QualifiedName,
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
 }
@@ -99,6 +106,7 @@ pub struct Definition {
     pub specializes: Vec<QualifiedName>,
     pub members: Vec<Declaration>,
     pub raw_body: Option<String>,
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
 }
@@ -119,6 +127,7 @@ pub struct Usage {
     pub redefines: Vec<QualifiedName>,
     pub members: Vec<Declaration>,
     pub raw_body: Option<String>,
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
 }
@@ -127,6 +136,7 @@ pub struct Usage {
 pub struct Alias {
     pub name: String,
     pub target: QualifiedName,
+    pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
 }
@@ -894,6 +904,7 @@ impl AuthoringProject {
                 file.module.package = Some(Package {
                     name: package_name.clone(),
                     members: Vec::new(),
+                    comments: Vec::new(),
                     docs: Vec::new(),
                     modifiers: Vec::new(),
                 });
@@ -909,6 +920,7 @@ impl AuthoringProject {
                 let file = self.ensure_file_mut(&target_file);
                 let import = Declaration::Import(Import {
                     path: path.clone(),
+                    comments: Vec::new(),
                     docs: Vec::new(),
                     modifiers: Vec::new(),
                 });
@@ -980,6 +992,7 @@ impl AuthoringProject {
                     specializes,
                     members: Vec::new(),
                     raw_body: None,
+                    comments: Vec::new(),
                     docs: Vec::new(),
                     modifiers: Vec::new(),
                 });
@@ -1018,6 +1031,7 @@ impl AuthoringProject {
                     redefines: Vec::new(),
                     members: Vec::new(),
                     raw_body: None,
+                    comments: Vec::new(),
                     docs: Vec::new(),
                     modifiers,
                 });
@@ -1068,6 +1082,7 @@ impl AuthoringProject {
                     redefines: Vec::new(),
                     members: Vec::new(),
                     raw_body: None,
+                    comments: Vec::new(),
                     docs: Vec::new(),
                     modifiers: Vec::new(),
                 });
@@ -2273,6 +2288,7 @@ impl AuthoringProject {
             .map(|path| {
                 Declaration::Import(Import {
                     path,
+                    comments: Vec::new(),
                     docs: Vec::new(),
                     modifiers: Vec::new(),
                 })
@@ -2459,9 +2475,17 @@ impl AuthoringModule {
     fn render(&self) -> String {
         let mut sections = Vec::new();
         if let Some(package) = &self.package {
-            sections.push(package.render(0));
+            sections.push(render_with_leading_comments(
+                &package.comments,
+                package.render(0),
+                0,
+            ));
         }
-        sections.extend(self.members.iter().map(|member| member.render(0)));
+        sections.extend(
+            self.members
+                .iter()
+                .map(|member| render_declaration_with_comments(member, 0)),
+        );
         if sections.is_empty() {
             String::new()
         } else {
@@ -2475,6 +2499,7 @@ impl Package {
         Self {
             name: QualifiedName(package.name.segments.clone()),
             members: package.members.iter().map(Declaration::from_ast).collect(),
+            comments: package.comments.clone(),
             docs: package.docs.clone(),
             modifiers: package.modifiers.clone(),
         }
@@ -2496,7 +2521,7 @@ impl Package {
             let body = self
                 .members
                 .iter()
-                .map(|member| member.render(indent + 2))
+                .map(|member| render_declaration_with_comments(member, indent + 2))
                 .collect::<Vec<_>>()
                 .join("\n\n");
             lines.push(body);
@@ -2764,16 +2789,31 @@ impl Declaration {
             AstDeclaration::Package(package) => Self::Package(Package::from_ast(package)),
             AstDeclaration::Import(import) => Self::Import(Import {
                 path: QualifiedName(import.path.segments.clone()),
+                comments: import.comments.clone(),
                 docs: import.docs.clone(),
                 modifiers: import.modifiers.clone(),
             }),
             AstDeclaration::Alias(alias) => Self::Alias(Alias {
                 name: alias.name.clone(),
                 target: QualifiedName(alias.target.segments.clone()),
+                comments: alias.comments.clone(),
                 docs: alias.docs.clone(),
                 modifiers: alias.modifiers.clone(),
             }),
             _ => unreachable!("definition-like and usage-like declarations are handled above"),
+        }
+    }
+
+    /// Leading own-line comments preserved from the source. Rendered by the
+    /// container (see `render_declaration_with_comments`), never by
+    /// `render(..)` itself, so localized splices cannot duplicate them.
+    pub fn comments(&self) -> &[CommentNote] {
+        match self {
+            Self::Package(package) => &package.comments,
+            Self::Import(import) => &import.comments,
+            Self::Definition(definition) => &definition.comments,
+            Self::Usage(usage) => &usage.comments,
+            Self::Alias(alias) => &alias.comments,
         }
     }
 
@@ -2814,6 +2854,7 @@ fn definition_from_ast_like(
             .map(Declaration::from_ast)
             .collect(),
         raw_body: None,
+        comments: definition.comments.clone(),
         docs: definition.docs.clone(),
         modifiers: definition.modifiers.clone(),
     }
@@ -2876,6 +2917,7 @@ fn usage_from_ast_like(usage: &crate::frontend::ast::GenericUsageDecl) -> Usage 
             .map(Declaration::from_ast)
             .collect(),
         raw_body: None,
+        comments: usage.comments.clone(),
         docs: usage.docs.clone(),
         modifiers,
     }
@@ -4643,6 +4685,7 @@ fn relationship_usage(
         redefines: Vec::new(),
         members: Vec::new(),
         raw_body: None,
+        comments: Vec::new(),
         docs: Vec::new(),
         modifiers: vec![format!("relationship_source={}", source.as_dot_string())],
     })
@@ -4796,6 +4839,41 @@ fn render_docs(docs: &[String], indent: usize) -> Vec<String> {
         .collect()
 }
 
+/// Renders preserved comments verbatim: `//{text}` per line comment and
+/// `/*{text}*/` for block comments, with block interiors (including any
+/// newlines) kept byte-for-byte. Emitted before docs.
+fn render_comments(comments: &[CommentNote], indent: usize) -> Vec<String> {
+    let prefix = " ".repeat(indent);
+    comments
+        .iter()
+        .map(|comment| match comment.kind {
+            CommentKind::Line => format!("{prefix}//{}", comment.text),
+            CommentKind::Block => format!("{prefix}/*{}*/", comment.text),
+        })
+        .collect()
+}
+
+fn render_with_leading_comments(
+    comments: &[CommentNote],
+    rendered: String,
+    indent: usize,
+) -> String {
+    if comments.is_empty() {
+        return rendered;
+    }
+    let mut lines = render_comments(comments, indent);
+    lines.push(rendered);
+    lines.join("\n")
+}
+
+/// Container-side render of a member declaration: leading comments first,
+/// then the declaration itself (which starts with its docs). Only containers
+/// render leading comments — a localized splice replaces the declaration
+/// span alone, leaving the original comment bytes above it untouched.
+fn render_declaration_with_comments(declaration: &Declaration, indent: usize) -> String {
+    render_with_leading_comments(declaration.comments(), declaration.render(indent), indent)
+}
+
 fn render_member_and_raw_body(
     members: &[Declaration],
     raw_body: Option<&str>,
@@ -4803,7 +4881,7 @@ fn render_member_and_raw_body(
 ) -> String {
     let mut blocks = members
         .iter()
-        .map(|member| member.render(indent))
+        .map(|member| render_declaration_with_comments(member, indent))
         .collect::<Vec<_>>();
     if let Some(raw_body) = raw_body {
         let prefix = " ".repeat(indent);
@@ -5552,6 +5630,7 @@ fn build_package_from_kir(
     Ok(Some(Package {
         name,
         members,
+        comments: Vec::new(),
         docs: docs_from_properties(&element.properties),
         modifiers: Vec::new(),
     }))
@@ -5580,6 +5659,7 @@ fn build_declaration_from_kir(
             })?;
         return Ok(Some(Declaration::Import(Import {
             path,
+            comments: Vec::new(),
             docs: docs_from_properties(&element.properties),
             modifiers: Vec::new(),
         })));
@@ -5614,6 +5694,7 @@ fn build_declaration_from_kir(
             specializes: specializations_from_properties(&element.properties, None),
             members: built_members,
             raw_body: None,
+            comments: Vec::new(),
             docs: docs_from_properties(&element.properties),
             modifiers: Vec::new(),
         })));
@@ -5674,6 +5755,7 @@ fn build_declaration_from_kir(
             redefines: property_qnames(&element.properties, "redefined_features"),
             members: built_members,
             raw_body: None,
+            comments: Vec::new(),
             docs: docs_from_properties(&element.properties),
             modifiers: usage_modifiers_from_properties(&element.properties),
         })));
@@ -5855,6 +5937,7 @@ fn fake_declaration_from_header(
         return Ok(Declaration::Package(Package {
             name: QualifiedName::parse(rest.trim()),
             members,
+            comments: Vec::new(),
             docs: Vec::new(),
             modifiers: Vec::new(),
         }));
@@ -5871,6 +5954,7 @@ fn fake_declaration_from_header(
             specializes: Vec::new(),
             members,
             raw_body: None,
+            comments: Vec::new(),
             docs: Vec::new(),
             modifiers: Vec::new(),
         }));
@@ -5917,6 +6001,7 @@ fn fake_declaration_from_header(
         redefines: Vec::new(),
         members,
         raw_body: None,
+        comments: Vec::new(),
         docs: Vec::new(),
         modifiers: Vec::new(),
     }))
@@ -7108,6 +7193,7 @@ mod tests {
             redefines: Vec::new(),
             members: Vec::new(),
             raw_body: None,
+            comments: Vec::new(),
             docs: Vec::new(),
             modifiers: vec![
                 "transition_source=Heating".to_string(),
@@ -7418,7 +7504,7 @@ mod tests {
         assert!(write_back.validation.ok);
     }
 
-    const COMMENTED_SOURCE: &str = "// keep me\npackage Demo {\n    part def Vehicle {\n        part engine;\n    }\n}\n";
+    const COMMENTED_SOURCE: &str = "// keep me\npackage Demo {\n    // vehicle def\n    part def Vehicle {\n        part engine;\n    }\n}\n";
 
     fn ast_span(
         start_line: usize,
@@ -7455,18 +7541,23 @@ mod tests {
             subsets: Vec::new(),
             redefines: Vec::new(),
             body_members: Vec::new(),
+            comments: Vec::new(),
             docs: Vec::new(),
             modifiers: Vec::new(),
-            span: ast_span(4, 9, 4, 20),
+            span: ast_span(5, 9, 5, 20),
         });
         let vehicle = ast::Declaration::GenericDefinition(ast::GenericDefinitionDecl {
             keyword: "part".to_string(),
             name: "Vehicle".to_string(),
             specializes: Vec::new(),
             members: vec![engine],
+            comments: vec![crate::frontend::ast::CommentNote {
+                text: " vehicle def".to_string(),
+                kind: crate::frontend::ast::CommentKind::Line,
+            }],
             docs: Vec::new(),
             modifiers: Vec::new(),
-            span: ast_span(3, 5, 5, 5),
+            span: ast_span(4, 5, 6, 5),
         });
         let package = ast::PackageDecl {
             name: ast::QualifiedName {
@@ -7476,9 +7567,13 @@ mod tests {
             members: vec![vehicle],
             imports: Vec::new(),
             definitions: Vec::new(),
+            comments: vec![crate::frontend::ast::CommentNote {
+                text: " keep me".to_string(),
+                kind: crate::frontend::ast::CommentKind::Line,
+            }],
             docs: Vec::new(),
             modifiers: Vec::new(),
-            span: ast_span(2, 1, 6, 1),
+            span: ast_span(2, 1, 7, 1),
         };
         let module = crate::frontend::ast::ParsedModule {
             package: Some(package),
@@ -7653,5 +7748,73 @@ mod tests {
         assert!(
             second_write_back.edited_files["demo.sysml"].contains("part axle;")
         );
+        // Canonical fallback re-renders the whole file from the model; the
+        // preserved comments must ride along.
+        assert!(second_write_back.edited_files["demo.sysml"].contains("// keep me"));
+        assert!(second_write_back.edited_files["demo.sysml"].contains("// vehicle def"));
+    }
+
+    #[test]
+    fn render_comments_reproduces_line_and_block_comments_verbatim() {
+        use crate::frontend::ast::{CommentKind, CommentNote};
+
+        let comments = vec![
+            CommentNote {
+                text: " single line".to_string(),
+                kind: CommentKind::Line,
+            },
+            CommentNote {
+                text: " one block ".to_string(),
+                kind: CommentKind::Block,
+            },
+            CommentNote {
+                text: "\n     * multi\n     * line\n     ".to_string(),
+                kind: CommentKind::Block,
+            },
+        ];
+
+        let rendered = super::render_comments(&comments, 4);
+
+        assert_eq!(rendered[0], "    // single line");
+        assert_eq!(rendered[1], "    /* one block */");
+        assert_eq!(rendered[2], "    /*\n     * multi\n     * line\n     */");
+    }
+
+    #[test]
+    fn canonical_render_emits_leading_comments_before_declarations() {
+        let project = commented_project();
+
+        let write_back = project
+            .write_back_changed_files(&["demo.sysml".to_string()].into())
+            .unwrap();
+
+        let text = &write_back.edited_files["demo.sysml"];
+        assert!(text.contains("// keep me"));
+        assert!(text.contains("// vehicle def"));
+        let comment_at = text.find("// vehicle def").unwrap();
+        let declaration_at = text.find("part def Vehicle").unwrap();
+        assert!(
+            comment_at < declaration_at,
+            "the leading comment must render above its declaration:\n{text}"
+        );
+        let package_comment_at = text.find("// keep me").unwrap();
+        let package_at = text.find("package Demo").unwrap();
+        assert!(package_comment_at < package_at, "{text}");
+    }
+
+    #[test]
+    fn localized_replace_never_duplicates_the_declarations_leading_comment() {
+        let mut project = commented_project();
+        let mutation = manual_mutation(vec![replace_node("Demo.Vehicle")]);
+
+        let write_back = project.write_back_mutation(&mutation).unwrap();
+
+        assert_eq!(write_back.mode, super::WriteBackMode::LocalizedPatch);
+        let text = &write_back.edited_files["demo.sysml"];
+        // The splice starts at the declaration keyword; the comment bytes
+        // above it stay in the original text and must not be re-rendered
+        // inside the patch.
+        assert_eq!(text.matches("// vehicle def").count(), 1, "{text}");
+        assert_eq!(text.matches("// keep me").count(), 1, "{text}");
     }
 }
