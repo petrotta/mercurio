@@ -26,7 +26,7 @@ pub use mutation::{
     SemanticDiffElementRef, SemanticElementContext, SemanticElementKind, SemanticElementRef,
     SemanticExpression, SemanticFactContext, SemanticMutation, SemanticMutationCapabilityContext,
     SemanticReasoningContext, SemanticRelationshipContext, SemanticRelationshipTargetRuleContext,
-    SemanticUsageTypingRuleContext, WorkspaceRevision,
+    SemanticUsageTypingRuleContext, WorkspaceRevision, WriteBackMode,
     default_semantic_mutation_capability_context, diff_kir_documents,
     enrich_semantic_reasoning_context_with_child_affordances,
     enrich_semantic_reasoning_context_with_child_affordances_for_capability,

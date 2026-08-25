@@ -17,7 +17,7 @@ pub use crate::semantic_profile::{
 };
 use mercurio_authoring::authoring::{
     AttributeWritePolicy, AuthoringModule, AuthoringProject, ContainerSelector, Declaration,
-    Mutation, QualifiedName, SemanticEdit,
+    Mutation, MutationResult, QualifiedName, SemanticEdit,
 };
 use mercurio_runtime::RulePack;
 
@@ -175,8 +175,7 @@ where
 
         let before_kir = context.project.compile_kir_document().ok();
         let mut project = context.project.clone();
-        let mut changed_files = BTreeSet::new();
-        let mut changed_declarations = BTreeSet::new();
+        let mut merged = MutationResult::default();
         let mut semantic_diff = SemanticDiff::default();
 
         for (index, operation) in plan.normalized_operations.iter().enumerate() {
@@ -208,26 +207,23 @@ where
                 operation_index: Some(index),
                 message: err.to_string(),
             })?;
-            changed_files.extend(result.changed_files.iter().cloned());
-            changed_declarations.extend(result.changed_declarations.iter().cloned());
-            let (property_files, property_declarations) =
-                apply_add_element_properties(&mut project, operation).map_err(|err| {
-                    FeasibilityIssue {
-                        kind: FeasibilityIssueKind::ValidationFailure,
-                        operation_index: Some(index),
-                        message: err.to_string(),
-                    }
-                })?;
-            changed_files.extend(property_files);
-            changed_declarations.extend(property_declarations);
             merge_diff(
                 &mut semantic_diff,
                 diff_for_operation(operation, Some(&result)),
             );
+            merged.merge(result);
+            let property_result = apply_add_element_properties(&mut project, operation).map_err(
+                |err| FeasibilityIssue {
+                    kind: FeasibilityIssueKind::ValidationFailure,
+                    operation_index: Some(index),
+                    message: err.to_string(),
+                },
+            )?;
+            merged.merge(property_result);
         }
 
         let write_back = project
-            .write_back_changed_files(&changed_files)
+            .write_back_mutation(&merged)
             .map_err(|err| FeasibilityIssue {
                 kind: FeasibilityIssueKind::ValidationFailure,
                 operation_index: None,
@@ -238,10 +234,11 @@ where
         }
 
         Ok(MutationApplicationResult {
-            changed_files,
+            changed_files: merged.changed_files,
             edited_files: write_back.edited_files,
-            changed_declarations,
+            changed_declarations: merged.changed_declarations,
             semantic_diff,
+            write_back_mode: Some(write_back.mode),
             proposed_digest: None,
             applied_digest: None,
             decided_at: None,
@@ -329,8 +326,8 @@ where
                 Ok(result) => {
                     changed_files.extend(result.changed_files.iter().cloned());
                     match apply_add_element_properties(&mut project, &operation) {
-                        Ok((property_files, _)) => {
-                            changed_files.extend(property_files);
+                        Ok(property_result) => {
+                            changed_files.extend(property_result.changed_files);
                         }
                         Err(err) => {
                             blocking_reasons.push(FeasibilityIssue {
@@ -425,7 +422,7 @@ where
 fn apply_add_element_properties(
     project: &mut AuthoringProject,
     operation: &SemanticMutation,
-) -> Result<(BTreeSet<String>, BTreeSet<String>), mercurio_authoring::authoring::AuthoringError> {
+) -> Result<MutationResult, mercurio_authoring::authoring::AuthoringError> {
     let SemanticMutation::AddElement {
         container,
         name,
@@ -433,11 +430,10 @@ fn apply_add_element_properties(
         ..
     } = operation
     else {
-        return Ok((BTreeSet::new(), BTreeSet::new()));
+        return Ok(MutationResult::default());
     };
     let element = ElementRef::new(format!("{}.{}", container.qualified_name, name));
-    let mut changed_files = BTreeSet::new();
-    let mut changed_declarations = BTreeSet::new();
+    let mut merged = MutationResult::default();
     for (attribute, value) in properties
         .iter()
         .filter(|(attribute, _)| !is_structural_add_element_property(attribute))
@@ -448,10 +444,9 @@ fn apply_add_element_properties(
             value: value.clone(),
             policy: AttributeWritePolicy::UpsertDirect,
         })?;
-        changed_files.extend(result.changed_files);
-        changed_declarations.extend(result.changed_declarations);
+        merged.merge(result);
     }
-    Ok((changed_files, changed_declarations))
+    Ok(merged)
 }
 
 fn is_structural_add_element_property(attribute: &str) -> bool {

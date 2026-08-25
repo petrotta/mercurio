@@ -13,6 +13,7 @@ use crate::variant::{
 use mercurio_authoring::authoring::{
     AuthoringModule, AuthoringProject, Declaration, MutationResult, QualifiedName,
 };
+pub use mercurio_authoring::authoring::WriteBackMode;
 use mercurio_kir::{
     KIR_PROP_NAME, KIR_PROP_OWNER, KIR_PROP_SPECIALIZES, KIR_PROP_TYPE, KirDocument, KirElement,
 };
@@ -1229,6 +1230,8 @@ pub struct MutationApplicationResult {
     pub edited_files: BTreeMap<String, String>,
     pub changed_declarations: BTreeSet<String>,
     pub semantic_diff: SemanticDiff,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_back_mode: Option<WriteBackMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proposed_digest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
