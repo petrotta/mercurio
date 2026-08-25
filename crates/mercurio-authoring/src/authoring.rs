@@ -4945,6 +4945,16 @@ fn render_transition_shorthand(usage: &Usage) -> Option<String> {
     }
     if let Some(trigger) = trigger {
         rendered.push_str(" accept ");
+        // Guarded triggers (`accept when …`, `accept after …`, `accept at …`)
+        // store the guard keyword separately as `trigger_kind`; rendering it
+        // back is required for the shorthand to re-parse. Event triggers
+        // (`trigger_kind=event`) render as the bare trigger name.
+        if let Some(kind) = modifier_value(&usage.modifiers, "trigger_kind")
+            && matches!(kind, "after" | "when" | "at")
+        {
+            rendered.push_str(kind);
+            rendered.push(' ');
+        }
         rendered.push_str(trigger);
     }
     if let Some(target) = target {
@@ -7076,6 +7086,69 @@ mod tests {
             "transition off_to_starting first off accept VehicleStartSignal then starting;"
         ));
         assert!(project.compile_user_kir().is_ok());
+    }
+
+    #[test]
+    fn transition_shorthand_renders_guarded_trigger_kinds() {
+        // Guarded triggers keep their guard keyword (`when` / `after` / `at`)
+        // in `trigger_kind`; the rendered shorthand must restore it or the
+        // text does not re-parse (DA-11 Tier-T write-back idempotence).
+        let mut guarded = super::Usage {
+            keyword: "transition".to_string(),
+            name: "heating_ready".to_string(),
+            is_implicit_name: false,
+            ty: None,
+            reference_target: None,
+            metadata_properties: BTreeMap::new(),
+            multiplicity: None,
+            expression: None,
+            additional_types: Vec::new(),
+            specializes: Vec::new(),
+            subsets: Vec::new(),
+            redefines: Vec::new(),
+            members: Vec::new(),
+            raw_body: None,
+            docs: Vec::new(),
+            modifiers: vec![
+                "transition_source=Heating".to_string(),
+                "trigger_kind=when".to_string(),
+                "trigger=temperature >= targetTemp".to_string(),
+                "transition_target=Ready".to_string(),
+            ],
+        };
+        assert_eq!(
+            super::render_transition_shorthand(&guarded),
+            Some(
+                "transition heating_ready first Heating accept when temperature >= targetTemp then Ready;"
+                    .to_string()
+            )
+        );
+
+        guarded.modifiers = vec![
+            "transition_source=Cold".to_string(),
+            "trigger_kind=after".to_string(),
+            "trigger=0.5".to_string(),
+            "transition_target=Heating".to_string(),
+        ];
+        assert_eq!(
+            super::render_transition_shorthand(&guarded),
+            Some("transition heating_ready first Cold accept after 0.5 then Heating;".to_string())
+        );
+
+        // Event triggers (bare signal names) stay unadorned.
+        guarded.modifiers = vec![
+            "transition_source=off".to_string(),
+            "trigger_kind=event".to_string(),
+            "trigger=VehicleStartSignal".to_string(),
+            "transition_target=starting".to_string(),
+        ];
+        assert_eq!(
+            super::render_transition_shorthand(&guarded),
+            Some(
+                "transition heating_ready first off accept VehicleStartSignal then starting;"
+                    .to_string()
+            )
+        );
     }
 
     #[test]
