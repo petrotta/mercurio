@@ -344,6 +344,20 @@ pub enum TableKindDto {
     ModelElements,
     Elements,
     Requirements,
+    /// DA-4: rows x columns pivot over a relation set. The serde name
+    /// (`relationship_matrix`) matches the existing TS `ViewKind` entry.
+    RelationshipMatrix,
+}
+
+/// DA-4 matrix presets. Each expands into default relations plus row/column
+/// element filters inside `render_relationship_matrix`; explicit spec fields
+/// always win over the preset expansion.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MatrixPresetDto {
+    Allocation,
+    Dsm,
+    RequirementsCoverage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -393,6 +407,22 @@ pub struct TableSpecDto {
     pub scope: TableScopeDto,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_type: Option<TableRowTypeDto>,
+    /// DA-4 (matrix kinds only): scope for the column axis. `None` mirrors the
+    /// row axis (the DSM default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_scope: Option<TableScopeDto>,
+    /// DA-4 (matrix kinds only): type filter for the column axis, same shape
+    /// as the row-type filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_type: Option<TableRowTypeDto>,
+    /// DA-4 (matrix kinds only): the relation set that fills cells. Empty
+    /// falls back to the preset expansion (or the full known relation set).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relations: Vec<String>,
+    /// DA-4 (matrix kinds only): preset expansion for allocation, DSM, and
+    /// requirements-coverage matrices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matrix_preset: Option<MatrixPresetDto>,
     #[serde(default)]
     pub query: DiagramQueryOptionsDto,
     #[serde(default)]
@@ -429,6 +459,10 @@ pub struct TableRowDto {
 pub struct TableCellDto {
     pub key: String,
     pub value: String,
+    /// DA-4: the relationship element id a matrix cell cites (`None` for
+    /// plain table cells, matrix row-header cells, and empty matrix cells).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -614,6 +648,7 @@ pub fn list_table_kinds() -> Vec<TableKindDto> {
         TableKindDto::ModelElements,
         TableKindDto::Elements,
         TableKindDto::Requirements,
+        TableKindDto::RelationshipMatrix,
     ]
 }
 
@@ -707,6 +742,10 @@ pub fn view_catalog(graph: &Graph) -> ViewCatalogReport {
                 target_type: None,
                 scope: TableScopeDto::WholeModel,
                 row_type: None,
+                column_scope: None,
+                column_type: None,
+                relations: Vec::new(),
+                matrix_preset: None,
                 query: catalog_query(default_catalog_relations()),
                 columns: Vec::new(),
                 show_affordances: false,
@@ -728,6 +767,10 @@ pub fn view_catalog(graph: &Graph) -> ViewCatalogReport {
                 target_type: None,
                 scope: TableScopeDto::WholeModel,
                 row_type: None,
+                column_scope: None,
+                column_type: None,
+                relations: Vec::new(),
+                matrix_preset: None,
                 query: catalog_query(vec![
                     "owner".to_string(),
                     "satisfy".to_string(),
@@ -737,6 +780,33 @@ pub fn view_catalog(graph: &Graph) -> ViewCatalogReport {
                 show_affordances: false,
             }),
         });
+
+        // DA-4: the coverage matrix is offered whenever requirements exist,
+        // mirroring the requirements-table guard.
+        entries.push(matrix_catalog_entry(
+            MatrixPresetDto::RequirementsCoverage,
+            "Matrix: Requirements Coverage",
+            "Requirements Coverage",
+            "Requirement rows against satisfying and verifying elements.",
+        ));
+    }
+
+    if has_matrix_allocation_content(graph) {
+        entries.push(matrix_catalog_entry(
+            MatrixPresetDto::Allocation,
+            "Matrix: Allocation",
+            "Allocation",
+            "Action and activity rows allocated onto part columns.",
+        ));
+    }
+
+    if has_matrix_dsm_content(graph) {
+        entries.push(matrix_catalog_entry(
+            MatrixPresetDto::Dsm,
+            "Matrix: Design Structure (DSM)",
+            "Design Structure Matrix",
+            "Part-to-part connection, flow, and dependency structure.",
+        ));
     }
 
     for element in graph.elements().iter().filter(|element| element.layer >= 2) {
@@ -852,9 +922,89 @@ pub fn view_catalog(graph: &Graph) -> ViewCatalogReport {
             .then_with(|| left.subject.cmp(&right.subject))
             .then_with(|| left.label.cmp(&right.label))
     });
-    entries.dedup_by(|left, right| left.kind == right.kind && left.subject == right.subject);
+    // Label participates in the identity so the three preset matrices (same
+    // kind, no subject) survive; same-kind/same-subject duplicates always
+    // carry identical labels, so this stays a pure duplicate guard.
+    entries.dedup_by(|left, right| {
+        left.kind == right.kind && left.subject == right.subject && left.label == right.label
+    });
 
     ViewCatalogReport { entries }
+}
+
+fn matrix_catalog_entry(
+    preset: MatrixPresetDto,
+    label: &str,
+    title: &str,
+    description: &str,
+) -> ViewCatalogEntry {
+    ViewCatalogEntry {
+        kind: "table.relationship_matrix".to_string(),
+        subject: None,
+        label: label.to_string(),
+        spec: ViewDocumentDto::table(TableSpecDto {
+            version: VIEW_SPEC_VERSION,
+            kind: TableKindDto::RelationshipMatrix,
+            title: title.to_string(),
+            description: Some(description.to_string()),
+            root: None,
+            target_type: None,
+            scope: TableScopeDto::WholeModel,
+            row_type: None,
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: Some(preset),
+            query: catalog_query(Vec::new()),
+            columns: Vec::new(),
+            show_affordances: false,
+        }),
+    }
+}
+
+/// Catalog guard: any allocation edge or reified allocation element.
+fn has_matrix_allocation_content(graph: &Graph) -> bool {
+    graph
+        .edges()
+        .iter()
+        .any(|edge| edge.relation.to_ascii_lowercase().contains("allocat"))
+        || graph
+            .elements()
+            .iter()
+            .any(|element| matrix_relationship_kind(element) == Some("allocate"))
+}
+
+/// Catalog guard: a connection/flow/dependency relationship whose endpoints
+/// both resolve to part-family elements.
+fn has_matrix_dsm_content(graph: &Graph) -> bool {
+    graph.elements().iter().any(|element| {
+        matches!(
+            matrix_relationship_kind(element),
+            Some("connection") | Some("flow") | Some("dependency")
+        ) && matrix_link_endpoints_are_parts(graph, element)
+    })
+}
+
+fn matrix_link_endpoints_are_parts(graph: &Graph, element: &Element) -> bool {
+    let source_is_part = endpoint_values(graph, element, &["source", "sources", "source_feature"])
+        .iter()
+        .any(|element_id| {
+            graph
+                .element_by_element_id(element_id)
+                .is_some_and(is_matrix_part_element)
+        });
+    let target_is_part = endpoint_values(
+        graph,
+        element,
+        &["target", "targets", "target_ref", "target_feature"],
+    )
+    .iter()
+    .any(|element_id| {
+        graph
+            .element_by_element_id(element_id)
+            .is_some_and(is_matrix_part_element)
+    });
+    source_is_part && target_is_part
 }
 
 fn diagram_kind_descriptor(kind: DiagramKindDto) -> ViewKindDescriptor {
@@ -1009,6 +1159,15 @@ fn table_kind_descriptor(kind: TableKindDto) -> ViewKindDescriptor {
             "Requirement rows with standard requirement columns.",
             vec!["RequirementDefinition", "RequirementUsage"],
             true,
+        ),
+        TableKindDto::RelationshipMatrix => (
+            "Relationship Matrix",
+            "Rows and columns from scoped element sets with cells from a \
+             relation set (allocation, DSM, and requirements-coverage presets).",
+            vec![],
+            // Descriptor honesty (DA-4): the matrix renders read-only; matrix
+            // cell editing waits for its gesture wiring.
+            false,
         ),
     };
 
@@ -1695,6 +1854,7 @@ pub fn render_table(
         TableKindDto::Requirements => {
             render_requirements_table(graph, metamodel_registry, &mut spec)
         }
+        TableKindDto::RelationshipMatrix => render_relationship_matrix(graph, &mut spec),
     }
 }
 
@@ -1786,6 +1946,457 @@ fn render_requirements_table(
         rows,
         warnings,
     })
+}
+
+/// Column key of the matrix row-header column (the pivoted grid's first
+/// column, carrying each row element's label).
+pub const MATRIX_ROW_HEADER_KEY: &str = "row";
+
+/// A resolved row/column relationship: either a direct property edge
+/// (`element: None`) or a reified relationship element whose id the matrix
+/// cell can cite.
+struct MatrixLink {
+    source: String,
+    target: String,
+    relation: String,
+    element: Option<String>,
+}
+
+/// DA-4: render a `relationship_matrix` table — rows from `scope`+`row_type`,
+/// columns from `column_scope`+`column_type` (default: mirror the rows, the
+/// DSM shape), cells from the `relations` set over direct property edges and
+/// reified relationship elements. Presets fill relations and axis filters
+/// without overriding anything the spec sets explicitly.
+fn render_relationship_matrix(
+    graph: &Graph,
+    spec: &mut TableSpecDto,
+) -> Result<TableViewDto, TableError> {
+    apply_matrix_preset(spec);
+    let mut warnings = Vec::new();
+    let relations = matrix_relations(spec);
+    let links = collect_matrix_links(graph, &relations);
+    let max_axis = effective_max_nodes(&spec.query);
+
+    let row_filter = matrix_preset_row_filter(spec.matrix_preset.as_ref());
+    let row_type = spec.row_type.clone();
+    let mut rows = matrix_scope_ids(graph, &spec.scope, spec.root.as_deref())?
+        .iter()
+        .filter_map(|node_id| graph.element(*node_id))
+        .filter(|element| include_element(element, &spec.query))
+        .filter(|element| matrix_axis_matches(graph, element, row_type.as_ref(), row_filter))
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| left.element_id.cmp(&right.element_id));
+    if rows.len() > max_axis {
+        warnings.push(format!(
+            "Matrix row limit reached; showing {max_axis} of {} rows.",
+            rows.len()
+        ));
+        rows.truncate(max_axis);
+    }
+
+    let mut columns = matrix_column_elements(graph, spec, &rows, &links)?;
+    columns.sort_by(|left, right| left.element_id.cmp(&right.element_id));
+    if columns.len() > max_axis {
+        warnings.push(format!(
+            "Matrix column limit reached; showing {max_axis} of {} columns.",
+            columns.len()
+        ));
+        columns.truncate(max_axis);
+    }
+
+    let mut links_by_pair: BTreeMap<(&str, &str), Vec<&MatrixLink>> = BTreeMap::new();
+    for link in &links {
+        links_by_pair
+            .entry((link.source.as_str(), link.target.as_str()))
+            .or_default()
+            .push(link);
+    }
+
+    let max_cells = effective_max_edges(&spec.query);
+    let mut filled = 0usize;
+    let mut cells_truncated = false;
+    let mut row_dtos = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let mut cells = Vec::with_capacity(columns.len() + 1);
+        cells.push(TableCellDto {
+            key: MATRIX_ROW_HEADER_KEY.to_string(),
+            value: matrix_element_label(graph, row),
+            element: None,
+        });
+        for column in &columns {
+            let mut cell_links = links_by_pair
+                .get(&(row.element_id.as_str(), column.element_id.as_str()))
+                .map(|links| links.clone())
+                .unwrap_or_default();
+            if row.element_id != column.element_id {
+                if let Some(reverse) =
+                    links_by_pair.get(&(column.element_id.as_str(), row.element_id.as_str()))
+                {
+                    cell_links.extend(reverse.iter().copied());
+                }
+            }
+            if !cell_links.is_empty() && filled >= max_cells {
+                cells_truncated = true;
+                cell_links.clear();
+            }
+            if cell_links.is_empty() {
+                cells.push(TableCellDto {
+                    key: column.element_id.clone(),
+                    value: String::new(),
+                    element: None,
+                });
+                continue;
+            }
+            filled += 1;
+            let mut relation_labels = cell_links
+                .iter()
+                .map(|link| link.relation.as_str())
+                .collect::<Vec<_>>();
+            relation_labels.sort_unstable();
+            relation_labels.dedup();
+            cells.push(TableCellDto {
+                key: column.element_id.clone(),
+                value: relation_labels.join(", "),
+                element: cell_links.iter().find_map(|link| link.element.clone()),
+            });
+        }
+        row_dtos.push(TableRowDto {
+            id: row.element_id.clone(),
+            element: row.element_id.clone(),
+            cells,
+            affordances: Vec::new(),
+        });
+    }
+    if cells_truncated {
+        warnings.push(format!(
+            "Matrix cell limit reached; showing first {max_cells} filled cells."
+        ));
+    }
+    if row_dtos.is_empty() {
+        warnings.push("No matrix rows matched the requested filters.".to_string());
+    }
+    if columns.is_empty() {
+        warnings.push("No matrix columns matched the requested filters.".to_string());
+    }
+    if spec.show_affordances {
+        attach_table_affordances(graph, &mut row_dtos);
+    }
+
+    let mut column_specs = Vec::with_capacity(columns.len() + 1);
+    column_specs.push(TableColumnSpecDto {
+        key: MATRIX_ROW_HEADER_KEY.to_string(),
+        label: matrix_row_axis_label(spec).to_string(),
+        path: None,
+        expression: None,
+    });
+    for column in &columns {
+        column_specs.push(TableColumnSpecDto {
+            key: column.element_id.clone(),
+            label: matrix_element_label(graph, column),
+            path: None,
+            expression: None,
+        });
+    }
+
+    Ok(TableViewDto {
+        spec: spec.clone(),
+        columns: column_specs,
+        available_columns: Vec::new(),
+        rows: row_dtos,
+        warnings,
+    })
+}
+
+/// Preset expansion: fill the relation set the preset implies. Axis element
+/// filters stay code-side (`matrix_preset_row_filter`/`matrix_column_elements`)
+/// so the spec keeps only what the author actually wrote.
+fn apply_matrix_preset(spec: &mut TableSpecDto) {
+    let Some(preset) = spec.matrix_preset.clone() else {
+        return;
+    };
+    if spec.relations.is_empty() {
+        spec.relations = match preset {
+            MatrixPresetDto::Allocation => vec!["allocate".to_string()],
+            MatrixPresetDto::Dsm => vec![
+                "connection".to_string(),
+                "flow".to_string(),
+                "dependency".to_string(),
+            ],
+            MatrixPresetDto::RequirementsCoverage => {
+                vec!["satisfy".to_string(), "verify".to_string()]
+            }
+        };
+    }
+}
+
+fn matrix_relations(spec: &TableSpecDto) -> Vec<String> {
+    if spec.relations.is_empty() {
+        // No preset and no explicit relations: accept every relation family a
+        // preset knows about rather than rendering an unconditionally empty
+        // matrix.
+        [
+            "allocate",
+            "connection",
+            "dependency",
+            "flow",
+            "satisfy",
+            "verify",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+    } else {
+        spec.relations.clone()
+    }
+}
+
+fn matrix_row_axis_label(spec: &TableSpecDto) -> &'static str {
+    if spec.row_type.is_some() || spec.target_type.is_some() {
+        return "Element";
+    }
+    match spec.matrix_preset {
+        Some(MatrixPresetDto::Allocation) => "Action",
+        Some(MatrixPresetDto::Dsm) => "Part",
+        Some(MatrixPresetDto::RequirementsCoverage) => "Requirement",
+        None => "Element",
+    }
+}
+
+/// Column axis resolution: explicit `column_scope`/`column_type` wins; absent
+/// that, the Allocation preset targets part elements, RequirementsCoverage
+/// derives columns from the relation endpoints opposite the rows, and DSM (or
+/// no preset) mirrors the row axis.
+fn matrix_column_elements<'a>(
+    graph: &'a Graph,
+    spec: &TableSpecDto,
+    rows: &[&'a Element],
+    links: &[MatrixLink],
+) -> Result<Vec<&'a Element>, TableError> {
+    if spec.column_scope.is_some() || spec.column_type.is_some() {
+        let scope = spec.column_scope.clone().unwrap_or_default();
+        let column_filter = matrix_preset_column_filter(spec.matrix_preset.as_ref())
+            .filter(|_| spec.column_type.is_none());
+        return Ok(matrix_scope_ids(graph, &scope, None)?
+            .iter()
+            .filter_map(|node_id| graph.element(*node_id))
+            .filter(|element| include_element(element, &spec.query))
+            .filter(|element| {
+                matrix_axis_matches(graph, element, spec.column_type.as_ref(), column_filter)
+            })
+            .collect());
+    }
+
+    match spec.matrix_preset {
+        Some(MatrixPresetDto::Allocation) => Ok(graph
+            .elements()
+            .iter()
+            .filter(|element| include_element(element, &spec.query))
+            .filter(|element| matrix_axis_matches(graph, element, None, Some(is_matrix_part_element)))
+            .collect()),
+        Some(MatrixPresetDto::RequirementsCoverage) => {
+            let row_ids = rows
+                .iter()
+                .map(|element| element.element_id.as_str())
+                .collect::<BTreeSet<_>>();
+            let mut column_ids = BTreeSet::new();
+            for link in links {
+                if row_ids.contains(link.target.as_str()) && !row_ids.contains(link.source.as_str())
+                {
+                    column_ids.insert(link.source.as_str());
+                }
+                if row_ids.contains(link.source.as_str()) && !row_ids.contains(link.target.as_str())
+                {
+                    column_ids.insert(link.target.as_str());
+                }
+            }
+            Ok(column_ids
+                .iter()
+                .filter_map(|element_id| graph.element_by_element_id(element_id))
+                .filter(|element| include_element(element, &spec.query))
+                .filter(|element| matrix_axis_matches(graph, element, None, None))
+                .collect())
+        }
+        // DSM default: columns mirror the rows.
+        _ => Ok(rows.to_vec()),
+    }
+}
+
+fn matrix_axis_matches(
+    graph: &Graph,
+    element: &Element,
+    type_filter: Option<&TableRowTypeDto>,
+    preset_filter: Option<fn(&Element) -> bool>,
+) -> bool {
+    // Reified relationships are cells, never axis entries.
+    if matrix_relationship_kind(element).is_some() {
+        return false;
+    }
+    if let Some(type_filter) = type_filter {
+        return element_matches_type(
+            graph,
+            element,
+            &type_filter.type_name,
+            type_filter.include_subtypes,
+        );
+    }
+    preset_filter.is_none_or(|filter| filter(element))
+}
+
+fn matrix_preset_row_filter(preset: Option<&MatrixPresetDto>) -> Option<fn(&Element) -> bool> {
+    match preset {
+        Some(MatrixPresetDto::Allocation) => Some(is_matrix_action_element),
+        Some(MatrixPresetDto::Dsm) => Some(is_matrix_part_element),
+        Some(MatrixPresetDto::RequirementsCoverage) => Some(is_requirement_element),
+        None => None,
+    }
+}
+
+fn matrix_preset_column_filter(preset: Option<&MatrixPresetDto>) -> Option<fn(&Element) -> bool> {
+    match preset {
+        Some(MatrixPresetDto::Allocation) | Some(MatrixPresetDto::Dsm) => {
+            Some(is_matrix_part_element)
+        }
+        _ => None,
+    }
+}
+
+fn is_matrix_action_element(element: &Element) -> bool {
+    is_activity_element(element) || kind_matches(element, &["ActionUsage", "ActionDefinition"])
+}
+
+fn is_matrix_part_element(element: &Element) -> bool {
+    kind_matches(
+        element,
+        &[
+            "PartUsage",
+            "PartDefinition",
+            "ItemUsage",
+            "ItemDefinition",
+            "BlockDefinition",
+            "ComponentDefinition",
+            "PortUsage",
+            "PortDefinition",
+        ],
+    )
+}
+
+/// The canonical relation label a reified relationship element carries, or
+/// `None` for elements that are not relationships.
+fn matrix_relationship_kind(element: &Element) -> Option<&'static str> {
+    if let Some(kind) = requirement_relationship_kind(element) {
+        return Some(kind);
+    }
+    let text = element_semantic_text(element);
+    if text.contains("allocat") {
+        return Some("allocate");
+    }
+    if text.contains("connection") || text.contains("connector") || text.contains("interfaceusage")
+    {
+        return Some("connection");
+    }
+    if text.contains("flow") {
+        return Some("flow");
+    }
+    if text.contains("dependency") {
+        return Some("dependency");
+    }
+    None
+}
+
+fn matrix_relation_match(candidate: &str, relations: &[String]) -> Option<String> {
+    let normalized = candidate.trim().to_ascii_lowercase();
+    relations.iter().find_map(|relation| {
+        let relation_normalized = relation.trim().to_ascii_lowercase();
+        if !relation_normalized.is_empty() && normalized.contains(&relation_normalized) {
+            Some(relation_normalized)
+        } else {
+            None
+        }
+    })
+}
+
+/// Gather every row/column relationship the relation set names: direct
+/// property edges first, then reified relationship elements
+/// (connection/allocation/flow/satisfy/... usages with explicit endpoints)
+/// whose element id a matrix cell can cite.
+fn collect_matrix_links(graph: &Graph, relations: &[String]) -> Vec<MatrixLink> {
+    let mut links = Vec::new();
+    for edge in graph.edges() {
+        let Some(relation) = matrix_relation_match(edge.relation.as_ref(), relations) else {
+            continue;
+        };
+        let (Some(source), Some(target)) =
+            (graph.element_id(edge.source), graph.element_id(edge.target))
+        else {
+            continue;
+        };
+        links.push(MatrixLink {
+            source: source.to_string(),
+            target: target.to_string(),
+            relation,
+            element: None,
+        });
+    }
+
+    for element in graph.elements() {
+        let Some(kind) = matrix_relationship_kind(element) else {
+            continue;
+        };
+        let Some(relation) = matrix_relation_match(kind, relations) else {
+            continue;
+        };
+        let sources = endpoint_values(graph, element, &["source", "sources", "source_feature"]);
+        let targets = endpoint_values(
+            graph,
+            element,
+            &["target", "targets", "target_ref", "target_feature"],
+        );
+        for source in &sources {
+            for target in &targets {
+                links.push(MatrixLink {
+                    source: source.clone(),
+                    target: target.clone(),
+                    relation: relation.clone(),
+                    element: Some(element.element_id.clone()),
+                });
+            }
+        }
+    }
+    links
+}
+
+fn matrix_scope_ids(
+    graph: &Graph,
+    scope: &TableScopeDto,
+    root: Option<&str>,
+) -> Result<BTreeSet<NodeId>, TableError> {
+    match scope {
+        TableScopeDto::WholeModel => {
+            if let Some(root) = root.filter(|root| !root.trim().is_empty()) {
+                let root = resolve_root(graph, root)
+                    .ok_or_else(|| TableError::RootNotFound(root.to_string()))?;
+                Ok(collect_containment_subtree_ids(graph, root.id))
+            } else {
+                Ok(graph.elements().iter().map(|element| element.id).collect())
+            }
+        }
+        TableScopeDto::ContainmentSubtree { root } => {
+            let root = resolve_root(graph, root)
+                .ok_or_else(|| TableError::RootNotFound(root.to_string()))?;
+            Ok(collect_containment_subtree_ids(graph, root.id))
+        }
+        TableScopeDto::ExplicitElements { elements } => Ok(elements
+            .iter()
+            .filter_map(|element_id| graph.element_by_element_id(element_id))
+            .map(|element| element.id)
+            .collect()),
+    }
+}
+
+fn matrix_element_label(graph: &Graph, element: &Element) -> String {
+    effective_property_text(graph, element, "declared_name")
+        .or_else(|| effective_property_text(graph, element, "name"))
+        .unwrap_or_else(|| label_for_id(&element.element_id))
 }
 
 fn default_elements_columns() -> Vec<TableColumnSpecDto> {
@@ -2021,6 +2632,20 @@ fn table_target_matches(
     let Some(target_type) = target_type else {
         return true;
     };
+    element_matches_type(
+        graph,
+        element,
+        target_type,
+        table_row_type_includes_subtypes(spec),
+    )
+}
+
+fn element_matches_type(
+    graph: &Graph,
+    element: &Element,
+    target_type: &str,
+    include_subtypes: bool,
+) -> bool {
     if table_type_is_element(target_type) {
         return true;
     }
@@ -2030,7 +2655,7 @@ fn table_target_matches(
     table_type_identifier_matches(element, target_type)
         || element_metatype(graph, element.id)
             .is_some_and(|metatype| table_type_identifier_matches(metatype, target_type))
-        || (table_row_type_includes_subtypes(spec)
+        || (include_subtypes
             && collect_specialization_ancestors(graph, element.id)
                 .into_iter()
                 .any(|ancestor| table_type_identifier_matches(ancestor, target_type)))
@@ -2084,6 +2709,7 @@ fn table_row(graph: &Graph, element: &Element, columns: &[TableColumnSpecDto]) -
             .map(|column| TableCellDto {
                 key: column.key.clone(),
                 value: table_cell_value(graph, element, column),
+                element: None,
             })
             .collect(),
         affordances: Vec::new(),
@@ -5709,6 +6335,10 @@ mod tests {
                 type_name: "Element".to_string(),
                 include_subtypes: true,
             }),
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto::default(),
             columns: Vec::new(),
             show_affordances: false,
@@ -6213,6 +6843,10 @@ mod tests {
             target_type: None,
             scope: TableScopeDto::WholeModel,
             row_type: None,
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto {
                 relations: vec!["owner".to_string()],
                 direction: DiagramDirectionDto::Children,
@@ -6271,6 +6905,10 @@ mod tests {
             target_type: None,
             scope: TableScopeDto::WholeModel,
             row_type: None,
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto::default(),
             columns: vec![TableColumnSpecDto {
                 key: "requirement_id".to_string(),
@@ -6492,6 +7130,10 @@ mod tests {
             target_type: None,
             scope: TableScopeDto::WholeModel,
             row_type: None,
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto::default(),
             columns: vec![
                 TableColumnSpecDto {
@@ -6536,6 +7178,10 @@ mod tests {
             target_type: None,
             scope: TableScopeDto::WholeModel,
             row_type: None,
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto {
                 relations: vec!["owner".to_string()],
                 direction: DiagramDirectionDto::Children,
@@ -6586,6 +7232,10 @@ mod tests {
             target_type: None,
             scope: TableScopeDto::WholeModel,
             row_type: None,
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto {
                 relations: vec!["owner".to_string()],
                 direction: DiagramDirectionDto::Children,
@@ -6647,6 +7297,10 @@ mod tests {
             target_type: Some("Comment".to_string()),
             scope: TableScopeDto::WholeModel,
             row_type: None,
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto::default(),
             columns: vec![
                 TableColumnSpecDto {
@@ -6714,6 +7368,10 @@ mod tests {
                 type_name: "Element".to_string(),
                 include_subtypes: true,
             }),
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto::default(),
             columns: vec![
                 TableColumnSpecDto {
@@ -6773,6 +7431,10 @@ mod tests {
                 type_name: "Requirement".to_string(),
                 include_subtypes: true,
             }),
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto::default(),
             columns: vec![
                 TableColumnSpecDto {
@@ -6821,6 +7483,10 @@ mod tests {
                 type_name: "Requirement".to_string(),
                 include_subtypes: true,
             }),
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: None,
             query: DiagramQueryOptionsDto::default(),
             columns: vec![
                 TableColumnSpecDto {
@@ -6862,6 +7528,468 @@ mod tests {
                 .any(|cell| cell.key == "status" && cell.value == "approved")
         );
     }
+
+    fn matrix_spec(preset: Option<MatrixPresetDto>) -> TableSpecDto {
+        TableSpecDto {
+            version: 1,
+            kind: TableKindDto::RelationshipMatrix,
+            title: "Matrix".to_string(),
+            description: None,
+            root: None,
+            target_type: None,
+            scope: TableScopeDto::WholeModel,
+            row_type: None,
+            column_scope: None,
+            column_type: None,
+            relations: Vec::new(),
+            matrix_preset: preset,
+            query: DiagramQueryOptionsDto {
+                relations: Vec::new(),
+                direction: DiagramDirectionDto::Children,
+                depth: 3,
+                include_libraries: false,
+                include_user_model: true,
+                max_nodes: 350,
+                max_edges: 900,
+            },
+            columns: Vec::new(),
+            show_affordances: false,
+        }
+    }
+
+    fn matrix_row_ids(view: &TableViewDto) -> Vec<&str> {
+        view.rows.iter().map(|row| row.element.as_str()).collect()
+    }
+
+    fn matrix_column_keys(view: &TableViewDto) -> Vec<&str> {
+        view.columns
+            .iter()
+            .map(|column| column.key.as_str())
+            .collect()
+    }
+
+    fn matrix_cell<'a>(view: &'a TableViewDto, row_id: &str, column_key: &str) -> &'a TableCellDto {
+        view.rows
+            .iter()
+            .find(|row| row.id == row_id)
+            .and_then(|row| row.cells.iter().find(|cell| cell.key == column_key))
+            .unwrap_or_else(|| panic!("matrix cell {row_id} x {column_key} should exist"))
+    }
+
+    #[test]
+    fn relationship_matrix_descriptor_is_registered_and_read_only() {
+        assert_eq!(
+            serde_json::to_value(TableKindDto::RelationshipMatrix)
+                .expect("table kind should serialize"),
+            json!("relationship_matrix")
+        );
+        assert!(list_table_kinds().contains(&TableKindDto::RelationshipMatrix));
+
+        let descriptor = list_view_kinds()
+            .into_iter()
+            .find(|descriptor| descriptor.id == "table.relationship_matrix")
+            .expect("relationship matrix descriptor is present");
+        assert_eq!(descriptor.family, ViewFamilyDto::Table);
+        assert_eq!(descriptor.root, ViewRootRequirementDto::Optional);
+        assert_eq!(
+            descriptor.scopes,
+            vec![
+                ViewScopeDto::WholeModel,
+                ViewScopeDto::Subtree,
+                ViewScopeDto::Explicit,
+            ]
+        );
+        assert!(!descriptor.animatable);
+        // Descriptor honesty: matrix editing is not wired yet.
+        assert!(!descriptor.editable);
+    }
+
+    #[test]
+    fn requirements_coverage_matrix_cites_satisfy_relationships() {
+        let view = render_table_sample(matrix_spec(Some(MatrixPresetDto::RequirementsCoverage)));
+
+        assert_eq!(matrix_row_ids(&view), vec!["req.Example.SafeStart"]);
+        assert_eq!(
+            matrix_column_keys(&view),
+            vec![MATRIX_ROW_HEADER_KEY, "feature.Example.Vehicle.controller"]
+        );
+        assert_eq!(view.columns[0].label, "Requirement");
+        assert_eq!(view.columns[1].label, "controller");
+
+        let header = matrix_cell(&view, "req.Example.SafeStart", MATRIX_ROW_HEADER_KEY);
+        assert_eq!(header.value, "SafeStart");
+        assert_eq!(header.element, None);
+
+        let cell = matrix_cell(
+            &view,
+            "req.Example.SafeStart",
+            "feature.Example.Vehicle.controller",
+        );
+        assert_eq!(cell.value, "satisfy");
+        assert_eq!(
+            cell.element.as_deref(),
+            Some("satisfy.Example.Vehicle.ControllerSafeStart")
+        );
+        assert!(view.warnings.is_empty(), "{:?}", view.warnings);
+    }
+
+    #[test]
+    fn allocation_matrix_preset_maps_actions_onto_parts() {
+        let mut document = view_fixture_document();
+        document.elements.push(KirElement {
+            id: "allocation.Example.ValidateToController".to_string(),
+            kind: "AllocationUsage".to_string(),
+            layer: 2,
+            properties: BTreeMap::from([
+                ("declared_name".to_string(), json!("ValidateToController")),
+                ("owner".to_string(), json!("pkg.Example")),
+                (
+                    "source".to_string(),
+                    json!("action.Example.Startup.Validate"),
+                ),
+                (
+                    "target".to_string(),
+                    json!("feature.Example.Vehicle.controller"),
+                ),
+            ]),
+        });
+        let graph = Graph::from_document(document).expect("sample graph should rebuild");
+        let registry = MetamodelAttributeRegistry::build(&graph);
+
+        let view = render_table(&graph, &registry, matrix_spec(Some(MatrixPresetDto::Allocation)))
+            .expect("allocation matrix should render");
+
+        assert_eq!(
+            matrix_row_ids(&view),
+            vec!["action.Example.Startup.Validate", "activity.Example.Startup"]
+        );
+        assert_eq!(
+            matrix_column_keys(&view),
+            vec![
+                MATRIX_ROW_HEADER_KEY,
+                "feature.Example.Vehicle.controller",
+                "port.Example.Vehicle.power",
+                "type.Example.Vehicle",
+            ]
+        );
+
+        let cell = matrix_cell(
+            &view,
+            "action.Example.Startup.Validate",
+            "feature.Example.Vehicle.controller",
+        );
+        assert_eq!(cell.value, "allocate");
+        assert_eq!(
+            cell.element.as_deref(),
+            Some("allocation.Example.ValidateToController")
+        );
+
+        let filled_cells = view
+            .rows
+            .iter()
+            .flat_map(|row| row.cells.iter().skip(1))
+            .filter(|cell| !cell.value.is_empty())
+            .count();
+        assert_eq!(filled_cells, 1);
+    }
+
+    #[test]
+    fn dsm_matrix_mirrors_part_axis_and_cites_connections() {
+        let view = render_table_sample(matrix_spec(Some(MatrixPresetDto::Dsm)));
+
+        let part_ids = vec![
+            "feature.Example.Vehicle.controller",
+            "port.Example.Vehicle.power",
+            "type.Example.Vehicle",
+        ];
+        assert_eq!(matrix_row_ids(&view), part_ids);
+        let mut expected_columns = vec![MATRIX_ROW_HEADER_KEY];
+        expected_columns.extend(part_ids.iter().copied());
+        assert_eq!(matrix_column_keys(&view), expected_columns);
+
+        let forward = matrix_cell(
+            &view,
+            "feature.Example.Vehicle.controller",
+            "port.Example.Vehicle.power",
+        );
+        assert_eq!(forward.value, "connection");
+        assert_eq!(
+            forward.element.as_deref(),
+            Some("connection.Example.Vehicle.ControllerPower")
+        );
+
+        // The undirected mirror of the same connection is filled too.
+        let mirrored = matrix_cell(
+            &view,
+            "port.Example.Vehicle.power",
+            "feature.Example.Vehicle.controller",
+        );
+        assert_eq!(mirrored.value, "connection");
+
+        // The diagonal and unrelated pairs stay empty.
+        assert!(
+            matrix_cell(&view, "type.Example.Vehicle", "type.Example.Vehicle")
+                .value
+                .is_empty()
+        );
+        assert!(
+            matrix_cell(
+                &view,
+                "type.Example.Vehicle",
+                "feature.Example.Vehicle.controller"
+            )
+            .value
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn matrix_axis_and_cell_limits_truncate_with_warnings() {
+        let mut spec = matrix_spec(Some(MatrixPresetDto::Dsm));
+        spec.query.max_nodes = 2;
+        spec.query.max_edges = 1;
+        let view = render_table_sample(spec);
+
+        assert_eq!(view.rows.len(), 2);
+        assert!(
+            view.warnings
+                .iter()
+                .any(|warning| warning.contains("Matrix row limit reached")),
+            "{:?}",
+            view.warnings
+        );
+        assert!(
+            view.warnings
+                .iter()
+                .any(|warning| warning.contains("Matrix cell limit reached")),
+            "{:?}",
+            view.warnings
+        );
+        let filled_cells = view
+            .rows
+            .iter()
+            .flat_map(|row| row.cells.iter().skip(1))
+            .filter(|cell| !cell.value.is_empty())
+            .count();
+        assert_eq!(filled_cells, 1);
+    }
+
+    /// DA-4 acceptance: a synthetic document mirroring
+    /// `mercurio-examples/desktop/vehicle-mass-compliance`'s requirement/
+    /// satisfy shape (one requirement definition satisfied by the baseline
+    /// vehicle part, plus an untraced requirement pinning the empty row).
+    #[test]
+    fn coverage_matrix_matches_vehicle_mass_compliance_requirement_shape() {
+        fn element(
+            id: &str,
+            kind: &str,
+            properties: BTreeMap<String, Value>,
+        ) -> KirElement {
+            KirElement {
+                id: id.to_string(),
+                kind: kind.to_string(),
+                layer: 2,
+                properties,
+            }
+        }
+
+        let document = KirDocument {
+            metadata: BTreeMap::new(),
+            elements: vec![
+                element(
+                    "pkg.VehicleMassCompliance",
+                    "Package",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("VehicleMassCompliance")),
+                        (
+                            "qualified_name".to_string(),
+                            json!("VehicleMassCompliance"),
+                        ),
+                    ]),
+                ),
+                element(
+                    "type.VehicleMassCompliance.Vehicle",
+                    "PartDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("Vehicle")),
+                        ("owner".to_string(), json!("pkg.VehicleMassCompliance")),
+                    ]),
+                ),
+                element(
+                    "req.VehicleMassCompliance.VehicleMassRequirement",
+                    "RequirementDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("VehicleMassRequirement")),
+                        ("owner".to_string(), json!("pkg.VehicleMassCompliance")),
+                    ]),
+                ),
+                element(
+                    "req.VehicleMassCompliance.UntracedRequirement",
+                    "RequirementDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("UntracedRequirement")),
+                        ("owner".to_string(), json!("pkg.VehicleMassCompliance")),
+                    ]),
+                ),
+                element(
+                    "feature.VehicleMassCompliance.baselineVehicle",
+                    "PartUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("baselineVehicle")),
+                        ("owner".to_string(), json!("pkg.VehicleMassCompliance")),
+                        (
+                            "satisfy".to_string(),
+                            json!(["req.VehicleMassCompliance.VehicleMassRequirement"]),
+                        ),
+                    ]),
+                ),
+                element(
+                    "satisfy.VehicleMassCompliance.BaselineVehicleMass",
+                    "SatisfyRequirementUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("BaselineVehicleMass")),
+                        ("owner".to_string(), json!("pkg.VehicleMassCompliance")),
+                        (
+                            "source".to_string(),
+                            json!("feature.VehicleMassCompliance.baselineVehicle"),
+                        ),
+                        (
+                            "target".to_string(),
+                            json!("req.VehicleMassCompliance.VehicleMassRequirement"),
+                        ),
+                    ]),
+                ),
+            ],
+        };
+        let graph = Graph::from_document(document).expect("coverage graph should build");
+        let registry = MetamodelAttributeRegistry::build(&graph);
+
+        let view = render_table(
+            &graph,
+            &registry,
+            matrix_spec(Some(MatrixPresetDto::RequirementsCoverage)),
+        )
+        .expect("coverage matrix should render");
+
+        assert_eq!(
+            matrix_row_ids(&view),
+            vec![
+                "req.VehicleMassCompliance.UntracedRequirement",
+                "req.VehicleMassCompliance.VehicleMassRequirement",
+            ]
+        );
+        assert_eq!(
+            matrix_column_keys(&view),
+            vec![
+                MATRIX_ROW_HEADER_KEY,
+                "feature.VehicleMassCompliance.baselineVehicle",
+            ]
+        );
+
+        let satisfied = matrix_cell(
+            &view,
+            "req.VehicleMassCompliance.VehicleMassRequirement",
+            "feature.VehicleMassCompliance.baselineVehicle",
+        );
+        assert_eq!(satisfied.value, "satisfy");
+        assert_eq!(
+            satisfied.element.as_deref(),
+            Some("satisfy.VehicleMassCompliance.BaselineVehicleMass")
+        );
+
+        let untraced = matrix_cell(
+            &view,
+            "req.VehicleMassCompliance.UntracedRequirement",
+            "feature.VehicleMassCompliance.baselineVehicle",
+        );
+        assert!(untraced.value.is_empty());
+        assert_eq!(untraced.element, None);
+    }
+
+    #[test]
+    fn view_catalog_offers_content_guarded_matrices() {
+        let (graph, _) = sample_graph();
+        let catalog = view_catalog(&graph);
+        let matrix_labels = catalog
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == "table.relationship_matrix")
+            .map(|entry| entry.label.as_str())
+            .collect::<Vec<_>>();
+        // The fixture has requirements and a part connection but no
+        // allocation content, so the allocation matrix is not offered.
+        assert_eq!(
+            matrix_labels,
+            vec![
+                "Matrix: Design Structure (DSM)",
+                "Matrix: Requirements Coverage",
+            ]
+        );
+
+        let mut document = view_fixture_document();
+        document.elements.push(KirElement {
+            id: "allocation.Example.ValidateToController".to_string(),
+            kind: "AllocationUsage".to_string(),
+            layer: 2,
+            properties: BTreeMap::from([
+                ("owner".to_string(), json!("pkg.Example")),
+                (
+                    "source".to_string(),
+                    json!("action.Example.Startup.Validate"),
+                ),
+                (
+                    "target".to_string(),
+                    json!("feature.Example.Vehicle.controller"),
+                ),
+            ]),
+        });
+        let graph = Graph::from_document(document).expect("sample graph should rebuild");
+        let catalog = view_catalog(&graph);
+        assert!(catalog.entries.iter().any(|entry| {
+            entry.kind == "table.relationship_matrix" && entry.label == "Matrix: Allocation"
+        }));
+    }
+
+    #[test]
+    fn matrix_spec_round_trips_and_legacy_table_json_parses() {
+        let mut spec = matrix_spec(Some(MatrixPresetDto::Dsm));
+        spec.relations = vec!["satisfy".to_string()];
+        spec.column_scope = Some(TableScopeDto::ContainmentSubtree {
+            root: "pkg.Example".to_string(),
+        });
+        spec.column_type = Some(TableRowTypeDto {
+            type_name: "PartUsage".to_string(),
+            include_subtypes: true,
+        });
+        let document = ViewDocumentDto::table(spec);
+
+        validate_view_document(&document).expect("matrix document should validate");
+        let json = serde_json::to_value(&document).expect("matrix document should serialize");
+        assert_eq!(json["kind"], json!("table"));
+        assert_eq!(json["table"]["kind"], json!("relationship_matrix"));
+        assert_eq!(json["table"]["matrix_preset"], json!("dsm"));
+        assert_eq!(json["table"]["relations"], json!(["satisfy"]));
+        assert_eq!(
+            json["table"]["column_scope"]["kind"],
+            json!("containment_subtree")
+        );
+        assert_eq!(json["table"]["column_type"]["type"], json!("PartUsage"));
+        let decoded: ViewDocumentDto =
+            serde_json::from_value(json).expect("matrix document should deserialize");
+        assert_eq!(decoded, document);
+
+        // Pre-DA-4 table JSON (no matrix fields) still parses to defaults.
+        let legacy: TableSpecDto = serde_json::from_value(json!({
+            "version": 1,
+            "kind": "requirements",
+            "title": "Requirements"
+        }))
+        .expect("legacy table spec should parse");
+        assert!(legacy.relations.is_empty());
+        assert!(legacy.matrix_preset.is_none());
+        assert!(legacy.column_scope.is_none());
+        assert!(legacy.column_type.is_none());
+    }
 }
 
 fn default_true() -> bool {
@@ -6892,6 +8020,7 @@ fn table_kind_name(kind: &TableKindDto) -> &'static str {
         TableKindDto::ModelElements => "model_elements",
         TableKindDto::Elements => "elements",
         TableKindDto::Requirements => "requirements",
+        TableKindDto::RelationshipMatrix => "relationship_matrix",
     }
 }
 
