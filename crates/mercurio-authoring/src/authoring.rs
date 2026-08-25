@@ -1388,7 +1388,7 @@ impl AuthoringProject {
                         .ok_or_else(|| AuthoringError::MissingDeclaration(render_qname.clone()))?;
                         (
                             node.span.clone(),
-                            render_with_indent(&declaration, node.indent),
+                            render_for_splice(&declaration, node.indent),
                         )
                     }
                     RewriteInstruction::ReplaceContainer {
@@ -1422,7 +1422,7 @@ impl AuthoringProject {
                                 if file.module.package.as_ref().is_some_and(|package_model| {
                                     package_model.name.as_dot_string() == render_qname
                                 }) {
-                                    render_with_indent(
+                                    render_for_splice(
                                         &(self.render_profile.render_package)(
                                             file.module.package.as_ref().expect("package exists"),
                                             0,
@@ -1434,7 +1434,7 @@ impl AuthoringProject {
                                     &QualifiedName::parse(&render_qname),
                                     self.render_profile,
                                 ) {
-                                    render_with_indent(&declaration, node.indent)
+                                    render_for_splice(&declaration, node.indent)
                                 } else {
                                     return Err(AuthoringError::MissingDeclaration(render_qname));
                                 }
@@ -5169,22 +5169,25 @@ fn is_unquoted_metadata_value(value: &str) -> bool {
     })
 }
 
-fn render_with_indent(rendered: &str, indent: usize) -> String {
-    if rendered.is_empty() {
+/// Indents a rendered declaration for splicing into original text. The
+/// splice range starts at the declaration's own start column, so the text
+/// before it already carries the indentation: the first line stays bare and
+/// only continuation lines receive the prefix.
+fn render_for_splice(rendered: &str, indent: usize) -> String {
+    let mut lines = rendered.lines();
+    let Some(first) = lines.next() else {
         return String::new();
-    }
+    };
     let prefix = " ".repeat(indent);
-    rendered
-        .lines()
-        .map(|line| {
-            if line.is_empty() {
-                String::new()
-            } else {
-                format!("{prefix}{line}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut spliced = first.to_string();
+    for line in lines {
+        spliced.push('\n');
+        if !line.is_empty() {
+            spliced.push_str(&prefix);
+            spliced.push_str(line);
+        }
+    }
+    spliced
 }
 
 fn qualify_name(owner: &str, name: &str) -> String {
