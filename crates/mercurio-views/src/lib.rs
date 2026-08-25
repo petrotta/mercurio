@@ -4,7 +4,27 @@
 //! and render functions for model-backed views.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+
+/// `std::time::Instant::now` panics on `wasm32-unknown-unknown` (no clock).
+/// Render timing is diagnostics-only, so on wasm this shim reports zero
+/// elapsed time and the slow-phase warnings simply never fire — keeping the
+/// crate wasm32-capable (no wall-clock in kernel crates).
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone, Copy)]
+struct Instant;
+
+#[cfg(target_arch = "wasm32")]
+impl Instant {
+    fn now() -> Self {
+        Instant
+    }
+
+    fn elapsed(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+}
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
