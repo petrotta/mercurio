@@ -4,6 +4,7 @@ pub mod assessment;
 pub mod capability;
 pub mod cognitive;
 pub mod goal;
+pub mod kir_canonical;
 pub mod semantic_compare;
 
 pub use ai_review::{
@@ -50,6 +51,11 @@ pub use goal::{
     GoalCheckEvaluation, GoalEvaluation, GoalPolicy, SemanticGoalCheck, SemanticGoalExplanation,
     SemanticGoalProfile, SemanticGoalProfileKind, SemanticGoalSpec, default_model_quality_profile,
     evaluate_semantic_goal, explain_semantic_goal,
+};
+pub use kir_canonical::{
+    CanonicalizedKir, KIR_EQUIVALENCE_REPORT_SCHEMA_VERSION, KirEquivalenceReport,
+    canonicalize_kir_document, kir_documents_equivalent, kir_equivalence_diff,
+    kir_equivalence_report, semantic_diff_is_empty,
 };
 pub use semantic_compare::{
     SEMANTIC_MODEL_COMPARE_REPORT_SCHEMA_VERSION, SemanticCompareError, SemanticCompareOptions,

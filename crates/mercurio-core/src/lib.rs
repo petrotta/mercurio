@@ -84,6 +84,10 @@ pub mod identity {
 #[doc(hidden)]
 pub mod ir;
 #[doc(hidden)]
+pub mod kir_canonical {
+    pub use mercurio_analysis::kir_canonical::*;
+}
+#[doc(hidden)]
 pub mod language {
     pub use mercurio_codegen::language::*;
 }
@@ -415,6 +419,11 @@ pub use runtime::{
     ExecutionContext, LayeredRuntime, LayeredRuntimeAssembly, QueryResult, Runtime,
     RuntimeArtifact, RuntimeBase, RuntimeError, RuntimeOverlay, RuntimeProfile,
     RuntimeProfileTimings,
+};
+pub use kir_canonical::{
+    CanonicalizedKir, KIR_EQUIVALENCE_REPORT_SCHEMA_VERSION, KirEquivalenceReport,
+    canonicalize_kir_document, kir_documents_equivalent, kir_equivalence_diff,
+    kir_equivalence_report, semantic_diff_is_empty,
 };
 pub use semantic_compare::{
     SEMANTIC_MODEL_COMPARE_REPORT_SCHEMA_VERSION, SemanticCompareError, SemanticCompareOptions,
