@@ -54,9 +54,28 @@ jobs:
       - name: Test workspace
         working-directory: mercurio-foundation
         run: cargo test --workspace --locked
-      - name: Assemble crates.io packages
+      - name: Verify the public package set
         working-directory: mercurio-foundation
-        run: cargo package --workspace --no-verify --locked
+        shell: bash
+        run: |
+          publishable="$(cargo metadata --no-deps --format-version 1 | jq -c '[.packages[] | select(.publish == null or (.publish | length > 0)) | .name] | sort')"
+          test "${publishable}" = '["mercurio-foundation"]'
+      - name: Build public rustdoc
+        working-directory: mercurio-foundation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --package mercurio-foundation --all-features --no-deps --locked
+      - name: Assemble the crates.io package
+        working-directory: mercurio-foundation
+        run: cargo package --package mercurio-foundation --locked
+      - name: Test the packaged crate independently
+        working-directory: mercurio-foundation
+        shell: bash
+        run: |
+          version="$(awk '/^\[workspace.package\]/{in_package=1; next} in_package && /^version = /{gsub(/"/, "", $3); print $3; exit}' Cargo.toml)"
+          package_dir="$(mktemp -d)"
+          tar -xzf "target/package/mercurio-foundation-${version}.crate" -C "${package_dir}"
+          cargo test --manifest-path "${package_dir}/mercurio-foundation-${version}/Cargo.toml" --all-features --locked
 
   publish:
     if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.publish)
@@ -68,60 +87,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Publish packages in dependency order
+      - name: Publish mercurio-foundation
         shell: bash
         run: |
           set -euo pipefail
           version="$(awk '/^\[workspace.package\]/{in_package=1; next} in_package && /^version = /{gsub(/"/, "", $3); print $3; exit}' Cargo.toml)"
-          packages=(
-            mercurio-kir
-            mercurio-simulation-core
-            mercurio-language-contracts
-            mercurio-model
-            mercurio-authoring
-            mercurio-runtime
-            mercurio-semantic-services
-            mercurio-views
-            mercurio-workspace
-            mercurio-analysis
-            mercurio-codegen
-            mercurio-session
-            mercurio-query-dsl
-            mercurio-core
-            mercurio-foundation
-          )
+          package="mercurio-foundation"
 
           published() {
             curl --fail --silent --show-error \
               --header "User-Agent: mercurio-foundation-release/${version}" \
-              "https://crates.io/api/v1/crates/$1" |
+              "https://crates.io/api/v1/crates/${package}" |
               jq --exit-status --arg version "${version}" \
                 '.versions | any(.num == $version)' >/dev/null
           }
 
-          publish_one() {
-            local package="$1"
-            if published "${package}"; then
-              echo "${package} ${version} is already published"
-              return
+          if published; then
+            echo "${package} ${version} is already published"
+            exit 0
+          fi
+
+          for attempt in {1..15}; do
+            if cargo publish --locked --package "${package}"; then
+              exit 0
             fi
-
-            for attempt in {1..15}; do
-              if cargo publish --locked --package "${package}"; then
-                return
-              fi
-              if published "${package}"; then
-                return
-              fi
-              if [[ "${attempt}" -eq 15 ]]; then
-                echo "failed to publish ${package} ${version}" >&2
-                return 1
-              fi
-              echo "publish attempt ${attempt} failed; retrying ${package} in 60 seconds"
-              sleep 60
-            done
-          }
-
-          for package in "${packages[@]}"; do
-            publish_one "${package}"
+            if published; then
+              exit 0
+            fi
+            if [[ "${attempt}" -eq 15 ]]; then
+              echo "failed to publish ${package} ${version}" >&2
+              exit 1
+            fi
+            echo "publish attempt ${attempt} failed; retrying ${package} in 60 seconds"
+            sleep 60
           done

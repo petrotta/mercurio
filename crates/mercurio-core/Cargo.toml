@@ -7,23 +7,11 @@ description.workspace = true
 repository.workspace = true
 readme.workspace = true
 rust-version.workspace = true
+publish = false
 
 [lib]
 name = "mercurio_core"
 
 [dependencies]
-mercurio-kir = { path = "../mercurio-kir", version = "0.85.0" }
-mercurio-authoring = { path = "../mercurio-authoring", version = "0.85.0" }
-mercurio-analysis = { path = "../mercurio-analysis", version = "0.85.0" }
-mercurio-codegen = { path = "../mercurio-codegen", version = "0.85.0" }
-mercurio-language-contracts = { path = "../mercurio-language-contracts", version = "0.85.0" }
-mercurio-model = { path = "../mercurio-model", version = "0.85.0" }
-mercurio-query-dsl = { path = "../mercurio-query-dsl", version = "0.85.0" }
-mercurio-runtime = { path = "../mercurio-runtime", version = "0.85.0" }
-mercurio-semantic-services = { path = "../mercurio-semantic-services", version = "0.85.0" }
-mercurio-session = { path = "../mercurio-session", version = "0.85.0" }
-mercurio-workspace = { path = "../mercurio-workspace", version = "0.85.0" }
-serde.workspace = true
+mercurio-foundation = { path = "../mercurio-foundation", version = "0.86.0" }
 serde_json.workspace = true
-rhai.workspace = true
-zip.workspace = true

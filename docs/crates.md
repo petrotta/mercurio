@@ -1,32 +1,63 @@
-# Crates
+# Package and Module Architecture
 
-## `mercurio-kir`
+## Publication Model
 
-Owns the KIR data contract:
+`mercurio-foundation` is the only public, publishable Cargo package in this
+repository. All source-language-neutral Foundation implementation ships in that
+crate. Consumers should depend on it directly and import either the root facade
+or a focused module path:
 
-- `KirDocument`
-- `KirElement`
-- schema version constants
-- validation diagnostics
-- KIR merge and file IO
-- field registry metadata used to classify references
+```rust
+use mercurio_foundation::{Graph, KirDocument};
+use mercurio_foundation::runtime::RuntimeArtifact;
+```
 
-This crate should stay small and stable. It is the lowest-level data contract used by every other crate.
+The focused architecture is preserved as modules under
+`crates/mercurio-foundation/src/modules/`. Module boundaries still define
+ownership and dependency direction even though crates.io sees one package.
 
-## `mercurio-language-contracts`
+The workspace retains packages with the former internal crate names as
+`publish = false` compatibility shims. They support source-tree migrations and
+repository-only tools by reexporting canonical APIs from `mercurio-foundation`.
+They are not independent products, must not gain new implementation ownership,
+and must not be published again. Historical crates.io versions remain available
+but frozen.
+
+## Root Facade
+
+The `mercurio_foundation` crate root provides the recommended compatibility
+facade. Small cross-module glue such as the KIR model-stack loader, logging
+helpers, proposal helpers, and semantic-target resolution lives under
+`src/facade/`. New subsystem behavior belongs in the focused module that owns
+the corresponding noun.
+
+## Module Ownership
+
+### `kir`
+
+Owns the stable KIR data contract:
+
+- `KirDocument` and `KirElement`,
+- schema version constants,
+- validation diagnostics,
+- KIR merge and IO,
+- field registry metadata used to classify references.
+
+This module should stay small and stable. Adding optional fields is generally
+compatible; removing or renaming contract fields breaks consumers.
+
+### `language_contracts`
 
 Owns contracts that language-specific repositories implement:
 
 - lexical and parsed-module data structures used by shared tooling,
-- diagnostics,
-- parse and compile reports,
-- `LanguageService`,
-- `LanguageRegistry`,
+- diagnostics and parse/compile reports,
+- `LanguageService` and `LanguageRegistry`,
 - expression IR shared by runtime and language compilers.
 
-This crate defines the boundary. It must not depend on a concrete source language.
+It defines the language boundary without depending on a concrete language.
 
-## `mercurio-model`
+### `model`
 
 Owns source-language-neutral model structures and graph projection:
 
@@ -35,9 +66,10 @@ Owns source-language-neutral model structures and graph projection:
 - derived-model primitives,
 - expression evaluation primitives shared by runtime services.
 
-This crate consumes KIR but should not contain source parsing, host behavior, UI behavior, AI orchestration, or plugin-host contracts.
+It must not contain source parsing, host behavior, UI behavior, AI
+orchestration, or plugin-host contracts.
 
-## `mercurio-runtime`
+### `runtime`
 
 Owns deterministic runtime services over graph artifacts:
 
@@ -47,9 +79,9 @@ Owns deterministic runtime services over graph artifacts:
 - expression IR evaluation,
 - runtime artifacts and profiling.
 
-This crate should stay deterministic and should not depend on product, reasoning, adapter, AI, or UI crates.
+Evaluation paths must not use randomness, wall-clock reads, or IO.
 
-## `mercurio-authoring`
+### `authoring`
 
 Owns source-language-neutral authoring services:
 
@@ -59,9 +91,10 @@ Owns source-language-neutral authoring services:
 - semantic and editor outlines,
 - lightweight frontend helpers and test language support.
 
-This crate may consume registered language services, but it should not contain a concrete production parser or version-specific metamodel bundle.
+Concrete production parsers and version-specific metamodel bundles remain in
+language repositories.
 
-## `mercurio-semantic-services`
+### `semantic_services`
 
 Owns semantic operations over KIR, graph, and authoring contexts:
 
@@ -71,23 +104,25 @@ Owns semantic operations over KIR, graph, and authoring contexts:
 - semantic validation,
 - next-action and variant-preview services.
 
-This crate should remain source-language-neutral. Language-specific rules should enter through profiles, rulepacks, registries, or explicit host contracts.
+Language-specific rules enter through profiles, rulepacks, registries, or
+explicit host contracts.
 
-## `mercurio-workspace`
+### `workspace`
 
 Owns workspace and package infrastructure:
 
 - repository paths and default resource lookup,
-- package descriptors and package repositories,
+- package descriptors and repositories,
 - workspace descriptors and resolved contexts,
 - model state and revision envelopes,
 - persistent compile cache,
 - plugin registry helpers,
 - local performance harnesses.
 
-This crate hosts filesystem-aware workspace behavior. Deterministic model evaluation still belongs in `mercurio-runtime`.
+Filesystem-aware workspace behavior belongs here; deterministic model
+evaluation remains in `runtime`.
 
-## `mercurio-analysis`
+### `analysis`
 
 Owns reusable semantic analysis contracts and reports:
 
@@ -97,9 +132,10 @@ Owns reusable semantic analysis contracts and reports:
 - cognitive context and quality goals,
 - semantic comparison reports.
 
-This crate should describe analysis over foundation data rather than owning AI orchestration, product workflows, or language-specific lowering.
+It describes analysis over Foundation data without owning AI orchestration,
+product workflows, or language-specific lowering.
 
-## `mercurio-query-dsl`
+### `query_dsl`
 
 Owns user-facing query execution surfaces:
 
@@ -108,20 +144,21 @@ Owns user-facing query execution surfaces:
 - DSL schemas and reports,
 - capability-backed query artifacts.
 
-This crate consumes model, runtime, session, workspace, and semantic-service APIs. It should not own the underlying graph or runtime primitives.
+It consumes model, runtime, session, workspace, and semantic-service APIs
+without owning the underlying graph or runtime primitives.
 
-## `mercurio-codegen`
+### `codegen`
 
-Owns code-generation and profile helper APIs:
+Owns code-generation and profile helpers:
 
 - language profiles,
 - metamodel concept registry,
-- library context helpers,
-- Python wrapper/code generation.
+- library-context helpers,
+- Python wrapper and typed-facade generation.
 
-This crate should generate from KIR/profile data without becoming a language compiler.
+It generates from KIR and profile data without becoming a language compiler.
 
-## `mercurio-session`
+### `session`
 
 Owns interactive semantic sessions:
 
@@ -130,9 +167,10 @@ Owns interactive semantic sessions:
 - host-authorized commit operations,
 - transaction reports.
 
-This crate coordinates authoring, workspace, and semantic services. It should keep host authorization explicit and avoid direct product or UI dependencies.
+It coordinates authoring, workspace, and semantic services while keeping host
+authorization explicit.
 
-## `mercurio-simulation-core`
+### `simulation_core`
 
 Owns source-neutral deterministic simulation primitives:
 
@@ -140,9 +178,10 @@ Owns source-neutral deterministic simulation primitives:
 - guard evaluation through runtime services,
 - source-neutral trace evidence.
 
-SysML-specific behavior lowering, library interpretation, and UI naming should live in language or product layers that call this crate.
+SysML-specific behavior lowering, library interpretation, and UI naming live in
+language or product layers that call this module.
 
-## `mercurio-views`
+### `views`
 
 Owns source-language-neutral view DTOs and rendering helpers:
 
@@ -151,14 +190,21 @@ Owns source-language-neutral view DTOs and rendering helpers:
 - table and diagram view documents,
 - deterministic SVG rendering helpers.
 
-This crate depends on KIR, model, and runtime primitives directly. It intentionally does not sit behind the `mercurio-core` facade because view APIs are an adapter-facing support layer.
+## Compatibility Package Map
 
-## `mercurio-core`
-
-Owns the public source-language-neutral, KerML-aligned compatibility facade.
-
-The Cargo package is named `mercurio-core`, while the Rust library target remains `mercurio_core` for existing consumers. The crate reexports the substrate APIs from the focused crates above and keeps only small local glue modules such as the KIR model-stack loader, logging helpers, proposal helpers, semantic-target resolution, and binaries.
-
-This facade should not accumulate new subsystem ownership. New behavior should usually land in the focused crate that owns the noun: KIR, model, runtime, authoring, semantic services, workspace, analysis, query DSL, codegen, session, simulation, or views.
-
-Its core concepts intentionally follow a KerML-style modeling vocabulary, but version-specific KerML/SysML libraries and lowering rules should live outside this crate.
+| Non-publishable package | Canonical API |
+|---|---|
+| `mercurio-kir` | `mercurio_foundation::kir` |
+| `mercurio-language-contracts` | `mercurio_foundation::language_contracts` |
+| `mercurio-model` | `mercurio_foundation::model` |
+| `mercurio-runtime` | `mercurio_foundation::runtime` |
+| `mercurio-authoring` | `mercurio_foundation::authoring` |
+| `mercurio-semantic-services` | `mercurio_foundation::semantic_services` |
+| `mercurio-workspace` | `mercurio_foundation::workspace` |
+| `mercurio-analysis` | `mercurio_foundation::analysis` |
+| `mercurio-query-dsl` | `mercurio_foundation::query_dsl` |
+| `mercurio-codegen` | `mercurio_foundation::codegen` |
+| `mercurio-session` | `mercurio_foundation::session` |
+| `mercurio-simulation-core` | `mercurio_foundation::simulation_core` |
+| `mercurio-views` | `mercurio_foundation::views` |
+| `mercurio-core` | `mercurio_foundation` root facade |

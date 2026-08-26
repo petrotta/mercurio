@@ -1,13 +1,17 @@
 # Releasing Mercurio Foundation
 
-Mercurio Foundation is released as one product with `mercurio-foundation` as
-its public crates.io entry point. Its implementation crates are published
-because Cargo must be able to resolve every transitive dependency from the
-registry, but they are not separate product release trains.
+`mercurio-foundation` is the repository's only public release unit and its only
+publishable Cargo package. The focused implementation ships as modules inside
+that crate.
 
-All publishable workspace packages use the version in `[workspace.package]`.
-Internal dependencies must retain both a local `path` and the matching
-registry `version`.
+Packages with the former internal crate names are `publish = false`
+compatibility shims. They are tested as workspace members but are never
+packaged or published. Existing crates.io releases of those names are historical
+artifacts: leave them available, do not publish new versions, and do not yank
+them except for a separate security or legal reason.
+
+The release version comes from `[workspace.package]` and is inherited by the
+`mercurio-foundation` manifest.
 
 ## Qualification
 
@@ -15,9 +19,15 @@ From this repository:
 
 ```powershell
 cargo test --workspace --locked
-cargo doc --workspace --no-deps --locked
-cargo package --workspace --no-verify --locked
+cargo doc --package mercurio-foundation --all-features --no-deps --locked
+cargo package --package mercurio-foundation --locked
+cargo publish --dry-run --package mercurio-foundation --locked
 ```
+
+CI also inspects `cargo metadata` and fails unless `mercurio-foundation` is the
+complete publishable package set.
+It then extracts the generated crate archive and runs the full all-features
+test suite against that standalone artifact so bundled resources cannot be omitted.
 
 From the sibling `mercurio-sysml` repository:
 
@@ -25,49 +35,27 @@ From the sibling `mercurio-sysml` repository:
 cargo run -p mercurio-tools --bin check_repo_boundaries -- --manifest ..\mercurio-foundation\repo-boundaries.json --strict
 ```
 
-`cargo package --no-verify` validates package assembly before the internal
-versions exist in crates.io. The release workflow performs the registry-backed
-verification while publishing each package.
+## Release Prerequisites
 
-## First Release
-
-Crate names are allocated by the first successful publish. Before pushing the
-first tag:
-
-1. Create a crates.io API token with permission to publish new crates.
-2. Add it to the `mercurio-foundation` GitHub repository as the
+1. Configure crates.io Trusted Publishing for the
+   `mercurio-labs/mercurio-foundation` GitHub repository, or provide a scoped
    `CARGO_REGISTRY_TOKEN` Actions secret.
-3. Protect the optional `crates-io` GitHub environment if release approval is
+2. Protect the optional `crates-io` GitHub environment if release approval is
    desired.
-4. Merge the qualified release commit to `main`.
-5. Create and push `foundation-v<version>`, for example
-   `foundation-v0.85.0`.
+3. Merge the qualified release commit to `main`.
+4. Create and push `foundation-v<version>`, for example
+   `foundation-v0.86.0`.
 
-The workflow is resumable. It skips any package version already present on
-crates.io and retries dependents while the registry index catches up.
+The release workflow validates that the tag matches the workspace version,
+repeats qualification, and publishes only:
 
-After the first release, configure crates.io Trusted Publishing for this GitHub
-repository and replace the long-lived token step with the crates.io OIDC action.
+```text
+mercurio-foundation
+```
 
-## Publish Order
+The workflow is resumable. If that exact version is already visible on
+crates.io, it exits successfully; otherwise it retries publication while the
+registry settles.
 
-The workflow publishes:
-
-1. `mercurio-kir`
-2. `mercurio-simulation-core`
-3. `mercurio-language-contracts`
-4. `mercurio-model`
-5. `mercurio-authoring`
-6. `mercurio-runtime`
-7. `mercurio-semantic-services`
-8. `mercurio-views`
-9. `mercurio-workspace`
-10. `mercurio-analysis`
-11. `mercurio-codegen`
-12. `mercurio-session`
-13. `mercurio-query-dsl`
-14. `mercurio-core`
-15. `mercurio-foundation`
-
-Do not publish Foundation and SysML concurrently. A SysML release starts only
-after its required Foundation version is visible on crates.io.
+Do not publish Foundation and SysML concurrently. Start a SysML release only
+after its required `mercurio-foundation` version is visible on crates.io.

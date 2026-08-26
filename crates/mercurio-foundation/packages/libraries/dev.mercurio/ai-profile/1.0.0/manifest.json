@@ -1,0 +1,13 @@
+{
+  "schema": "dev.mercurio.local-package.v1",
+  "name": "dev.mercurio/ai-profile",
+  "version": "1.0.0",
+  "kind": "kpar",
+  "file": "ai-profile-1.0.0.kpar",
+  "digest": "sha256:9549fb9b5ccfb348d184b79325211a7c1f3a53b355aece92556d57acd4c9a708",
+  "created_at": "unix:0",
+  "source": {
+    "kind": "file",
+    "path": "src/ai-profile.sysml"
+  }
+}

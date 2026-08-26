@@ -1,0 +1,9 @@
+{
+  "id": "mercurio.core",
+  "version": "0.1.0",
+  "metadata": {
+    "description": "Core Mercurio derived semantic reasoning rules"
+  },
+  "facts": [],
+  "rules": []
+}
