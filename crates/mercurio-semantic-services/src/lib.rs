@@ -36,9 +36,9 @@ pub use mutation::{
     semantic_reasoning_context_from_authoring_project_with_oracle,
 };
 pub use semantic_legality::{
-    SEMANTIC_LEGALITY_SCHEMA_VERSION, SemanticLegalityDiagnostic, SemanticLegalityDiagnosticSource,
-    SemanticLegalityOperation, SemanticLegalityReport, SemanticLegalityRequest,
-    SemanticLegalityService, SemanticLegalityStatus,
+    SEMANTIC_LEGALITY_SCHEMA_VERSION, SemanticLegalityBatch, SemanticLegalityDiagnostic,
+    SemanticLegalityDiagnosticSource, SemanticLegalityOperation, SemanticLegalityReport,
+    SemanticLegalityRequest, SemanticLegalityService, SemanticLegalityStatus,
 };
 pub use semantic_next_actions::{
     SEMANTIC_NEXT_ACTIONS_SCHEMA_VERSION, SemanticNextAction, SemanticNextActionOperation,

@@ -5,8 +5,8 @@ use crate::mutation::{
     SemanticMutationCapabilityContext, SemanticReasoningContext,
 };
 use crate::semantic_legality::{
-    SEMANTIC_LEGALITY_SCHEMA_VERSION, SemanticLegalityOperation, SemanticLegalityReport,
-    SemanticLegalityRequest, SemanticLegalityService, SemanticLegalityStatus,
+    SEMANTIC_LEGALITY_SCHEMA_VERSION, SemanticLegalityBatch, SemanticLegalityOperation,
+    SemanticLegalityReport, SemanticLegalityService, SemanticLegalityStatus,
 };
 use crate::semantic_profile::{ConservativeSemanticCapabilityOracle, SemanticCapabilityOracle};
 use mercurio_runtime::Fact;
@@ -43,13 +43,31 @@ where
     }
 
     pub fn next_actions(&self, request: SemanticNextActionsRequest) -> SemanticNextActionsReport {
+        let batch = self.legality.batch(request.facts.clone());
+        self.next_actions_with_batch(request, &batch)
+    }
+
+    /// `batch` must have been prepared from the same facts as
+    /// `request.facts`; callers that answer many requests over one fact
+    /// context reuse the batch across them.
+    fn next_actions_with_batch(
+        &self,
+        request: SemanticNextActionsRequest,
+        batch: &SemanticLegalityBatch<'_, O>,
+    ) -> SemanticNextActionsReport {
         let mut candidates = Vec::new();
+        // Many candidates (e.g. every concrete target of one kind) map to the
+        // same kind-level legality operation - compute each distinct
+        // operation once.
+        let mut memo: std::collections::BTreeMap<String, SemanticLegalityReport> =
+            std::collections::BTreeMap::new();
         let element = request.element.clone();
 
         for target_kind in &request.candidate_target_kinds {
             self.push_checked_action(
                 &mut candidates,
-                &request,
+                batch,
+                &mut memo,
                 element.clone(),
                 SemanticNextActionOperation::Specialize {
                     target_kind: target_kind.clone(),
@@ -62,7 +80,8 @@ where
 
             self.push_checked_action(
                 &mut candidates,
-                &request,
+                batch,
+                &mut memo,
                 element.clone(),
                 SemanticNextActionOperation::TypeUsage {
                     definition_kind: target_kind.clone(),
@@ -77,7 +96,8 @@ where
         for attribute in &request.candidate_attributes {
             self.push_checked_action(
                 &mut candidates,
-                &request,
+                batch,
+                &mut memo,
                 element.clone(),
                 SemanticNextActionOperation::WriteAttribute {
                     attribute: attribute.clone(),
@@ -93,7 +113,8 @@ where
             for relationship_kind in &self.capability_context.relationship_kinds {
                 self.push_checked_action(
                     &mut candidates,
-                    &request,
+                    batch,
+                    &mut memo,
                     element.clone(),
                     SemanticNextActionOperation::AddRelationship {
                         relationship_kind: relationship_kind.clone(),
@@ -113,7 +134,8 @@ where
             for relationship_kind in &self.capability_context.relationship_kinds {
                 self.push_checked_action(
                     &mut candidates,
-                    &request,
+                    batch,
+                    &mut memo,
                     element.clone(),
                     SemanticNextActionOperation::AddRelationship {
                         relationship_kind: relationship_kind.clone(),
@@ -131,7 +153,8 @@ where
 
         self.push_checked_action(
             &mut candidates,
-            &request,
+            batch,
+            &mut memo,
             element.clone(),
             SemanticNextActionOperation::AddPackage {
                 child_kind: "package".to_string(),
@@ -145,7 +168,8 @@ where
         for kind in &self.capability_context.element_kinds {
             self.push_checked_action(
                 &mut candidates,
-                &request,
+                batch,
+                &mut memo,
                 element.clone(),
                 SemanticNextActionOperation::AddElement {
                     child_kind: kind.clone(),
@@ -160,7 +184,8 @@ where
         for keyword in &self.capability_context.definition_keywords {
             self.push_checked_action(
                 &mut candidates,
-                &request,
+                batch,
+                &mut memo,
                 element.clone(),
                 SemanticNextActionOperation::AddDefinition {
                     child_kind: keyword.clone(),
@@ -175,7 +200,8 @@ where
         for keyword in &self.capability_context.usage_keywords {
             self.push_checked_action(
                 &mut candidates,
-                &request,
+                batch,
+                &mut memo,
                 element.clone(),
                 SemanticNextActionOperation::AddUsage {
                     child_kind: keyword.clone(),
@@ -220,15 +246,17 @@ where
     fn push_checked_action(
         &self,
         candidates: &mut Vec<RankedSemanticNextAction>,
-        request: &SemanticNextActionsRequest,
+        batch: &SemanticLegalityBatch<'_, O>,
+        memo: &mut std::collections::BTreeMap<String, SemanticLegalityReport>,
         element: Option<ElementRef>,
         operation: SemanticNextActionOperation,
         legality_operation: SemanticLegalityOperation,
     ) {
-        let legality = self.legality.check(SemanticLegalityRequest {
-            operation: legality_operation,
-            facts: request.facts.clone(),
-        });
+        let memo_key = format!("{legality_operation:?}");
+        let legality = memo
+            .entry(memo_key)
+            .or_insert_with(|| batch.check(legality_operation))
+            .clone();
         candidates.push(RankedSemanticNextAction {
             ordinal: candidates.len(),
             action: SemanticNextAction {
@@ -270,12 +298,13 @@ pub fn enrich_semantic_reasoning_context_with_next_action_affordances<O>(
         .map(|element| element.qualified_name.clone())
         .collect::<std::collections::BTreeSet<_>>();
     let focused_only = !focus.is_empty();
+    let batch = service.legality.batch(facts.clone());
     let containers = context
         .elements
         .iter()
         .filter(|element| {
             (!focused_only || focus.contains(&element.element.qualified_name))
-                && next_action_element_has_affordances(element, context, service, &facts)
+                && next_action_element_has_affordances(element, context, service, &batch)
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -285,15 +314,18 @@ pub fn enrich_semantic_reasoning_context_with_next_action_affordances<O>(
             context.truncated = true;
             return;
         }
-        let report = service.next_actions(SemanticNextActionsRequest {
-            element: Some(element.element.clone()),
-            element_kind: next_action_element_kind(&element),
-            candidate_target_kinds: Vec::new(),
-            candidate_targets: next_action_candidate_targets(context, &element),
-            candidate_attributes: Vec::new(),
-            facts: facts.clone(),
-            max_actions: Some(max_affordances.saturating_sub(context.affordances.len())),
-        });
+        let report = service.next_actions_with_batch(
+            SemanticNextActionsRequest {
+                element: Some(element.element.clone()),
+                element_kind: next_action_element_kind(&element),
+                candidate_target_kinds: Vec::new(),
+                candidate_targets: next_action_candidate_targets(context, &element),
+                candidate_attributes: Vec::new(),
+                facts: facts.clone(),
+                max_actions: Some(max_affordances.saturating_sub(context.affordances.len())),
+            },
+            &batch,
+        );
         for action in report.actions {
             if context.affordances.len() >= max_affordances {
                 context.truncated = true;
@@ -342,19 +374,19 @@ fn next_action_element_has_affordances<O>(
     element: &SemanticElementContext,
     context: &SemanticReasoningContext,
     service: &SemanticNextActionsService<O>,
-    facts: &[Fact],
+    batch: &SemanticLegalityBatch<'_, O>,
 ) -> bool
 where
     O: SemanticCapabilityOracle,
 {
-    next_action_element_can_own_children(element, service, facts)
-        || next_action_element_can_relate_to_candidate(element, context, service, facts)
+    next_action_element_can_own_children(element, service, batch)
+        || next_action_element_can_relate_to_candidate(element, context, service, batch)
 }
 
 fn next_action_element_can_own_children<O>(
     element: &SemanticElementContext,
     service: &SemanticNextActionsService<O>,
-    facts: &[Fact],
+    batch: &SemanticLegalityBatch<'_, O>,
 ) -> bool
 where
     O: SemanticCapabilityOracle,
@@ -384,14 +416,10 @@ where
         );
     child_kinds.into_iter().any(|child_kind| {
         matches!(
-            service
-                .legality
-                .check(SemanticLegalityRequest {
-                    operation: SemanticLegalityOperation::Containment {
-                        container_kind: container_kind.clone(),
-                        child_kind: child_kind.to_string(),
-                    },
-                    facts: facts.to_vec(),
+            batch
+                .check(SemanticLegalityOperation::Containment {
+                    container_kind: container_kind.clone(),
+                    child_kind: child_kind.to_string(),
                 })
                 .status,
             SemanticLegalityStatus::Allowed | SemanticLegalityStatus::AllowedWithWarnings
@@ -403,7 +431,7 @@ fn next_action_element_can_relate_to_candidate<O>(
     element: &SemanticElementContext,
     context: &SemanticReasoningContext,
     service: &SemanticNextActionsService<O>,
-    facts: &[Fact],
+    batch: &SemanticLegalityBatch<'_, O>,
 ) -> bool
 where
     O: SemanticCapabilityOracle,
@@ -418,15 +446,11 @@ where
                 .iter()
                 .any(|relationship_kind| {
                     matches!(
-                        service
-                            .legality
-                            .check(SemanticLegalityRequest {
-                                operation: SemanticLegalityOperation::Relationship {
-                                    relationship_kind: relationship_kind.clone(),
-                                    source_kind: source_kind.clone(),
-                                    target_kind: target.kind.clone(),
-                                },
-                                facts: facts.to_vec(),
+                        batch
+                            .check(SemanticLegalityOperation::Relationship {
+                                relationship_kind: relationship_kind.clone(),
+                                source_kind: source_kind.clone(),
+                                target_kind: target.kind.clone(),
                             })
                             .status,
                         SemanticLegalityStatus::Allowed

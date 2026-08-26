@@ -10,9 +10,9 @@ mod runtime;
 
 pub use datalog::{
     Atom, CORE_RULEPACK_ID, CORE_RULEPACK_VERSION, DatalogError, DerivedIndexes, DiagnosticRule,
-    Evaluation, Explanation, Fact, Rule, RuleDiagnostic, RuleDiagnosticSeverity, RulePack, Term,
-    evaluate, evaluate_diagnostics, extract_graph_facts, load_default_rulepacks,
-    materialize_core_indexes,
+    Evaluation, Explanation, Fact, FactIndex, Rule, RuleDiagnostic, RuleDiagnosticSeverity,
+    RulePack, Term, evaluate, evaluate_diagnostics, evaluate_diagnostics_with_overlay,
+    extract_graph_facts, load_default_rulepacks, materialize_core_indexes,
 };
 pub use runtime::{
     ExecutionContext, LayeredRuntime, LayeredRuntimeAssembly, QueryResult, Runtime,

@@ -5,8 +5,8 @@ use crate::semantic_profile::{
     SemanticCapabilityOracle, SemanticElementAuthoring,
 };
 use mercurio_runtime::{
-    DatalogError, Fact, RuleDiagnostic, RuleDiagnosticSeverity, RulePack, evaluate,
-    evaluate_diagnostics,
+    DatalogError, Fact, FactIndex, Rule, RuleDiagnostic, RuleDiagnosticSeverity, RulePack,
+    evaluate, evaluate_diagnostics, evaluate_diagnostics_with_overlay,
 };
 
 pub const SEMANTIC_LEGALITY_SCHEMA_VERSION: &str = "mercurio.semantic_legality.v1";
@@ -15,14 +15,55 @@ pub const SEMANTIC_LEGALITY_SCHEMA_VERSION: &str = "mercurio.semantic_legality.v
 pub struct SemanticLegalityService<O = ConservativeSemanticCapabilityOracle> {
     oracle: O,
     rulepacks: Vec<RulePack>,
+    engine: Option<LegalityRuleEngine>,
+}
+
+/// The rulepack contents merged once at service construction so per-check
+/// evaluation does not re-clone every rulepack.
+#[derive(Debug, Clone)]
+struct LegalityRuleEngine {
+    base_facts: Vec<Fact>,
+    rules: Vec<Rule>,
+    diagnostics: Vec<mercurio_runtime::DiagnosticRule>,
+    rule_body_predicates: std::collections::BTreeSet<String>,
+}
+
+impl LegalityRuleEngine {
+    fn from_rulepacks(rulepacks: &[RulePack]) -> Option<Self> {
+        if rulepacks.is_empty() {
+            return None;
+        }
+        let mut packs = vec![RulePack::structural_core()];
+        packs.extend(rulepacks.iter().cloned());
+        let base_facts = packs
+            .iter()
+            .flat_map(|pack| pack.facts.iter().cloned())
+            .collect();
+        let rules = packs
+            .iter()
+            .flat_map(|pack| pack.rules.iter().cloned())
+            .collect::<Vec<_>>();
+        let diagnostics = packs
+            .iter()
+            .flat_map(|pack| pack.diagnostics.iter().cloned())
+            .collect();
+        let rule_body_predicates = rules
+            .iter()
+            .flat_map(|rule| rule.body.iter())
+            .map(|atom| atom.predicate.clone())
+            .collect();
+        Some(Self {
+            base_facts,
+            rules,
+            diagnostics,
+            rule_body_predicates,
+        })
+    }
 }
 
 impl SemanticLegalityService<ConservativeSemanticCapabilityOracle> {
     pub fn new() -> Self {
-        Self {
-            oracle: ConservativeSemanticCapabilityOracle,
-            rulepacks: Vec::new(),
-        }
+        Self::with_oracle(ConservativeSemanticCapabilityOracle)
     }
 }
 
@@ -37,14 +78,16 @@ where
     O: SemanticCapabilityOracle,
 {
     pub fn with_oracle(oracle: O) -> Self {
-        Self {
-            oracle,
-            rulepacks: Vec::new(),
-        }
+        Self::with_oracle_and_rulepacks(oracle, Vec::new())
     }
 
     pub fn with_oracle_and_rulepacks(oracle: O, rulepacks: Vec<RulePack>) -> Self {
-        Self { oracle, rulepacks }
+        let engine = LegalityRuleEngine::from_rulepacks(&rulepacks);
+        Self {
+            oracle,
+            rulepacks,
+            engine,
+        }
     }
 
     pub fn rulepacks(&self) -> &[RulePack] {
@@ -54,22 +97,7 @@ where
     pub fn check(&self, request: SemanticLegalityRequest) -> SemanticLegalityReport {
         let answer = self.oracle_answer(&request.operation);
         let mut diagnostics = diagnostics_from_capability_answer(&answer);
-
-        match self.evaluate_rule_diagnostics(&request) {
-            Ok(rule_diagnostics) => diagnostics.extend(
-                rule_diagnostics
-                    .into_iter()
-                    .map(SemanticLegalityDiagnostic::from_rule_diagnostic),
-            ),
-            Err(error) => diagnostics.push(SemanticLegalityDiagnostic {
-                code: "semantic.legality.rule_evaluation_failed".to_string(),
-                severity: RuleDiagnosticSeverity::Error,
-                message: error.to_string(),
-                subjects: Vec::new(),
-                source: SemanticLegalityDiagnosticSource::RuleEvaluation,
-                source_facts: Vec::new(),
-            }),
-        }
+        append_rule_diagnostics(&mut diagnostics, self.evaluate_rule_diagnostics(&request));
 
         let status = status_from_answer_and_diagnostics(&answer, &diagnostics);
         SemanticLegalityReport {
@@ -78,6 +106,28 @@ where
             status,
             answer,
             diagnostics,
+        }
+    }
+
+    /// Prepares a batch evaluator that runs the rulepack fixpoint once over
+    /// `shared_facts` and answers many per-operation checks against it.
+    ///
+    /// Equivalent to calling [`Self::check`] with the same `shared_facts` for
+    /// every operation, but the (expensive) rule evaluation happens once
+    /// instead of once per check.
+    pub fn batch(&self, shared_facts: Vec<Fact>) -> SemanticLegalityBatch<'_, O> {
+        let base = self.engine.as_ref().map(|engine| {
+            let facts = shared_facts
+                .iter()
+                .cloned()
+                .chain(engine.base_facts.iter().cloned());
+            evaluate(facts, &engine.rules)
+                .map(|evaluation| FactIndex::from_evaluation(&evaluation))
+        });
+        SemanticLegalityBatch {
+            service: self,
+            shared_facts,
+            base,
         }
     }
 
@@ -200,28 +250,90 @@ where
         &self,
         request: &SemanticLegalityRequest,
     ) -> Result<Vec<RuleDiagnostic>, DatalogError> {
-        if self.rulepacks.is_empty() {
+        let Some(engine) = &self.engine else {
             return Ok(Vec::new());
-        }
+        };
 
         let mut facts = request.operation.facts();
         facts.extend(request.facts.iter().cloned());
+        facts.extend(engine.base_facts.iter().cloned());
+        let evaluation = evaluate(facts, &engine.rules)?;
+        evaluate_diagnostics(&evaluation, &engine.diagnostics)
+    }
+}
 
-        let mut rulepacks = vec![RulePack::structural_core()];
-        rulepacks.extend(self.rulepacks.iter().cloned());
-        for pack in &rulepacks {
-            facts.extend(pack.facts.iter().cloned());
+/// Answers many legality checks that share one fact context, evaluating the
+/// rulepack fixpoint once instead of once per check. Produced by
+/// [`SemanticLegalityService::batch`].
+#[derive(Debug)]
+pub struct SemanticLegalityBatch<'a, O = ConservativeSemanticCapabilityOracle> {
+    service: &'a SemanticLegalityService<O>,
+    shared_facts: Vec<Fact>,
+    base: Option<Result<FactIndex, DatalogError>>,
+}
+
+impl<O> SemanticLegalityBatch<'_, O>
+where
+    O: SemanticCapabilityOracle,
+{
+    /// Equivalent to `service.check(SemanticLegalityRequest { operation,
+    /// facts: shared_facts })`.
+    pub fn check(&self, operation: SemanticLegalityOperation) -> SemanticLegalityReport {
+        let op_facts = operation.facts();
+        if let Some(engine) = &self.service.engine
+            && op_facts
+                .iter()
+                .any(|fact| engine.rule_body_predicates.contains(&fact.predicate))
+        {
+            // An operation fact could feed a derivation rule, so the shared
+            // fixpoint is not reusable for this operation - run the full
+            // per-check evaluation instead.
+            return self.service.check(SemanticLegalityRequest {
+                operation,
+                facts: self.shared_facts.clone(),
+            });
         }
-        let rules = rulepacks
-            .iter()
-            .flat_map(|pack| pack.rules.iter().cloned())
-            .collect::<Vec<_>>();
-        let diagnostics = rulepacks
-            .iter()
-            .flat_map(|pack| pack.diagnostics.iter().cloned())
-            .collect::<Vec<_>>();
-        let evaluation = evaluate(facts, &rules)?;
-        evaluate_diagnostics(&evaluation, &diagnostics)
+
+        let answer = self.service.oracle_answer(&operation);
+        let mut diagnostics = diagnostics_from_capability_answer(&answer);
+        match (&self.service.engine, &self.base) {
+            (Some(engine), Some(Ok(index))) => append_rule_diagnostics(
+                &mut diagnostics,
+                evaluate_diagnostics_with_overlay(index, &op_facts, &engine.diagnostics),
+            ),
+            (_, Some(Err(error))) => append_rule_diagnostics(&mut diagnostics, Err(error.clone())),
+            _ => {}
+        }
+
+        let status = status_from_answer_and_diagnostics(&answer, &diagnostics);
+        SemanticLegalityReport {
+            schema_version: SEMANTIC_LEGALITY_SCHEMA_VERSION.to_string(),
+            operation,
+            status,
+            answer,
+            diagnostics,
+        }
+    }
+}
+
+fn append_rule_diagnostics(
+    diagnostics: &mut Vec<SemanticLegalityDiagnostic>,
+    result: Result<Vec<RuleDiagnostic>, DatalogError>,
+) {
+    match result {
+        Ok(rule_diagnostics) => diagnostics.extend(
+            rule_diagnostics
+                .into_iter()
+                .map(SemanticLegalityDiagnostic::from_rule_diagnostic),
+        ),
+        Err(error) => diagnostics.push(SemanticLegalityDiagnostic {
+            code: "semantic.legality.rule_evaluation_failed".to_string(),
+            severity: RuleDiagnosticSeverity::Error,
+            message: error.to_string(),
+            subjects: Vec::new(),
+            source: SemanticLegalityDiagnosticSource::RuleEvaluation,
+            source_facts: Vec::new(),
+        }),
     }
 }
 
@@ -531,6 +643,142 @@ mod tests {
         );
 
         let report = service.check_relationship("satisfy", "part", "part");
+
+        assert_eq!(report.status, SemanticLegalityStatus::Blocked);
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "test.satisfy.target_requirement"
+                && diagnostic.source == SemanticLegalityDiagnosticSource::Rulepack
+                && diagnostic.subjects == ["part"]
+        }));
+    }
+
+    fn parity_rulepack(rule_on_legality_predicate: bool) -> RulePack {
+        let mut rules = vec![mercurio_runtime::Rule {
+            id: "test.derive_forbidden".to_string(),
+            head: Atom {
+                predicate: "forbidden_relationship_target".to_string(),
+                terms: vec![Term::Var("Kind".to_string())],
+            },
+            body: vec![Atom {
+                predicate: "shared_forbidden".to_string(),
+                terms: vec![Term::Var("Kind".to_string())],
+            }],
+        }];
+        if rule_on_legality_predicate {
+            rules.push(mercurio_runtime::Rule {
+                id: "test.derive_from_operation".to_string(),
+                head: Atom {
+                    predicate: "operation_seen".to_string(),
+                    terms: vec![Term::Var("Operation".to_string())],
+                },
+                body: vec![Atom {
+                    predicate: "legality_operation".to_string(),
+                    terms: vec![Term::Var("Operation".to_string())],
+                }],
+            });
+        }
+        let mut diagnostics = vec![DiagnosticRule {
+            id: "test.satisfy.target_requirement".to_string(),
+            severity: RuleDiagnosticSeverity::Error,
+            message: "satisfy must target a requirement-like element".to_string(),
+            subjects: vec![Term::Var("Target".to_string())],
+            when: vec![
+                Atom {
+                    predicate: "legality_relationship_request".to_string(),
+                    terms: vec![
+                        Term::Const("satisfy".to_string()),
+                        Term::Var("Source".to_string()),
+                        Term::Var("Target".to_string()),
+                    ],
+                },
+                Atom {
+                    predicate: "forbidden_relationship_target".to_string(),
+                    terms: vec![Term::Var("Target".to_string())],
+                },
+            ],
+        }];
+        if rule_on_legality_predicate {
+            diagnostics.push(DiagnosticRule {
+                id: "test.operation_seen".to_string(),
+                severity: RuleDiagnosticSeverity::Warning,
+                message: "operation observed by rules".to_string(),
+                subjects: vec![Term::Var("Operation".to_string())],
+                when: vec![Atom {
+                    predicate: "operation_seen".to_string(),
+                    terms: vec![Term::Var("Operation".to_string())],
+                }],
+            });
+        }
+        RulePack {
+            id: "test.parity".to_string(),
+            version: "0.1.0".to_string(),
+            metadata: BTreeMap::<String, Value>::new(),
+            facts: Vec::new(),
+            rules,
+            diagnostics,
+        }
+    }
+
+    fn parity_operations() -> Vec<SemanticLegalityOperation> {
+        vec![
+            SemanticLegalityOperation::Relationship {
+                relationship_kind: "satisfy".to_string(),
+                source_kind: "part".to_string(),
+                target_kind: "part".to_string(),
+            },
+            SemanticLegalityOperation::Relationship {
+                relationship_kind: "satisfy".to_string(),
+                source_kind: "part".to_string(),
+                target_kind: "requirement".to_string(),
+            },
+            SemanticLegalityOperation::Containment {
+                container_kind: "package".to_string(),
+                child_kind: "part".to_string(),
+            },
+            SemanticLegalityOperation::AttributeWrite {
+                kind: "requirement".to_string(),
+                attribute: "text".to_string(),
+            },
+        ]
+    }
+
+    #[test]
+    fn batch_check_matches_per_check_reports() {
+        for rule_on_legality_predicate in [false, true] {
+            let service = SemanticLegalityService::with_oracle_and_rulepacks(
+                ConservativeSemanticCapabilityOracle,
+                vec![parity_rulepack(rule_on_legality_predicate)],
+            );
+            let shared_facts = vec![Fact::new("shared_forbidden", ["part".to_string()])];
+            let batch = service.batch(shared_facts.clone());
+
+            for operation in parity_operations() {
+                let batched = batch.check(operation.clone());
+                let direct = service.check(SemanticLegalityRequest {
+                    operation,
+                    facts: shared_facts.clone(),
+                });
+                assert_eq!(
+                    batched, direct,
+                    "batch and per-check reports diverged (rule_on_legality_predicate={rule_on_legality_predicate})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn batch_check_reports_shared_fact_driven_diagnostics() {
+        let service = SemanticLegalityService::with_oracle_and_rulepacks(
+            ConservativeSemanticCapabilityOracle,
+            vec![parity_rulepack(false)],
+        );
+        let batch = service.batch(vec![Fact::new("shared_forbidden", ["part".to_string()])]);
+
+        let report = batch.check(SemanticLegalityOperation::Relationship {
+            relationship_kind: "satisfy".to_string(),
+            source_kind: "part".to_string(),
+            target_kind: "part".to_string(),
+        });
 
         assert_eq!(report.status, SemanticLegalityStatus::Blocked);
         assert!(report.diagnostics.iter().any(|diagnostic| {

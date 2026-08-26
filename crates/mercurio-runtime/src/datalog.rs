@@ -753,20 +753,78 @@ fn materialize_builtin_indexes(graph: &Graph, rulepacks: &[RulePack]) -> Derived
     indexes
 }
 
+/// Facts grouped by predicate so rule evaluation can join against just the
+/// facts a body atom can possibly match instead of scanning every known fact.
+#[derive(Debug, Clone, Default)]
+pub struct FactIndex {
+    by_predicate: HashMap<String, Vec<Fact>>,
+}
+
+impl FactIndex {
+    pub fn from_facts<I>(facts: I) -> Self
+    where
+        I: IntoIterator<Item = Fact>,
+    {
+        let mut index = Self::default();
+        for fact in facts {
+            if !index.contains(&fact) {
+                index.insert(fact);
+            }
+        }
+        index
+    }
+
+    pub fn from_evaluation(evaluation: &Evaluation) -> Self {
+        // Evaluation facts are already deduplicated by the fixpoint set.
+        let mut index = Self::default();
+        for fact in evaluation.facts() {
+            index.insert(fact.clone());
+        }
+        index
+    }
+
+    pub fn contains(&self, fact: &Fact) -> bool {
+        self.candidates(&fact.predicate)
+            .iter()
+            .any(|existing| existing == fact)
+    }
+
+    fn insert(&mut self, fact: Fact) {
+        self.by_predicate
+            .entry(fact.predicate.clone())
+            .or_default()
+            .push(fact);
+    }
+
+    fn candidates(&self, predicate: &str) -> &[Fact] {
+        self.by_predicate
+            .get(predicate)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+}
+
 pub fn evaluate<I>(facts: I, rules: &[Rule]) -> Result<Evaluation, DatalogError>
 where
     I: IntoIterator<Item = Fact>,
 {
     validate_rules(rules)?;
-    let mut known = facts.into_iter().collect::<BTreeSet<_>>();
+    let mut known = BTreeSet::new();
+    let mut index = FactIndex::default();
+    for fact in facts {
+        if known.insert(fact.clone()) {
+            index.insert(fact);
+        }
+    }
     let mut explanations = BTreeMap::new();
     let mut changed = true;
 
     while changed {
         changed = false;
         for rule in rules {
-            for (derived, source_facts) in derive_rule(rule, &known)? {
+            for (derived, source_facts) in derive_rule(rule, &index, &[])? {
                 if known.insert(derived.clone()) {
+                    index.insert(derived.clone());
                     explanations.insert(
                         derived,
                         Explanation {
@@ -790,15 +848,38 @@ pub fn evaluate_diagnostics(
     evaluation: &Evaluation,
     diagnostics: &[DiagnosticRule],
 ) -> Result<Vec<RuleDiagnostic>, DatalogError> {
+    let index = FactIndex::from_evaluation(evaluation);
+    evaluate_diagnostics_with_overlay(&index, &[], diagnostics)
+}
+
+/// Evaluates diagnostic rules against an already-computed fact index plus a
+/// small overlay of extra facts, without re-running the rule fixpoint.
+///
+/// The caller must guarantee the overlay facts cannot feed any derivation
+/// rule (e.g. no rule body references their predicates); under that guarantee
+/// the result is identical to re-evaluating the fixpoint with the overlay
+/// included. Overlay facts already present in the index are ignored.
+pub fn evaluate_diagnostics_with_overlay(
+    index: &FactIndex,
+    overlay: &[Fact],
+    diagnostics: &[DiagnosticRule],
+) -> Result<Vec<RuleDiagnostic>, DatalogError> {
+    let mut deduped_overlay = Vec::new();
+    for fact in overlay {
+        if !index.contains(fact) && !deduped_overlay.contains(fact) {
+            deduped_overlay.push(fact.clone());
+        }
+    }
     diagnostics
         .iter()
-        .map(|diagnostic| evaluate_diagnostic_rule(evaluation, diagnostic))
+        .map(|diagnostic| evaluate_diagnostic_rule(index, &deduped_overlay, diagnostic))
         .collect::<Result<Vec<_>, _>>()
         .map(|groups| groups.into_iter().flatten().collect())
 }
 
 fn evaluate_diagnostic_rule(
-    evaluation: &Evaluation,
+    index: &FactIndex,
+    overlay: &[Fact],
     diagnostic: &DiagnosticRule,
 ) -> Result<Vec<RuleDiagnostic>, DatalogError> {
     let rule = Rule {
@@ -810,7 +891,7 @@ fn evaluate_diagnostic_rule(
         body: diagnostic.when.clone(),
     };
     validate_rules(std::slice::from_ref(&rule))?;
-    derive_rule(&rule, evaluation.facts()).map(|matches| {
+    derive_rule(&rule, index, overlay).map(|matches| {
         matches
             .into_iter()
             .map(|(fact, source_facts)| RuleDiagnostic {
@@ -854,14 +935,20 @@ fn validate_rules(rules: &[Rule]) -> Result<(), DatalogError> {
 
 fn derive_rule(
     rule: &Rule,
-    known: &BTreeSet<Fact>,
+    index: &FactIndex,
+    overlay: &[Fact],
 ) -> Result<Vec<(Fact, Vec<Fact>)>, DatalogError> {
     let mut bindings = vec![(HashMap::<String, String>::new(), Vec::<Fact>::new())];
 
     for atom in &rule.body {
-        let candidates = known
+        let candidates = index
+            .candidates(&atom.predicate)
             .iter()
-            .filter(|fact| fact.predicate == atom.predicate)
+            .chain(
+                overlay
+                    .iter()
+                    .filter(|fact| fact.predicate == atom.predicate),
+            )
             .collect::<Vec<_>>();
         let mut next = Vec::new();
 
