@@ -1020,7 +1020,7 @@ fn diagram_kind_descriptor(kind: DiagramKindDto) -> ViewKindDescriptor {
         ),
         DiagramKindDto::Bdd => (
             "Block Definition Diagram",
-            "Block definitions, part usages, and specialization relationships.",
+            "Definition-level composition (has-a-part rolled up from part usages) and specialization between block definitions.",
             ViewRootRequirementDto::Optional,
             vec!["Package", "PartDefinition", "ItemDefinition"],
             vec![ViewScopeDto::WholeModel, ViewScopeDto::Subtree],
@@ -3160,6 +3160,7 @@ fn render_bdd_diagram(
     add_bdd_block_nodes(graph, metamodel_registry, &mut view);
     add_derived_bdd_edges(graph, &mut view);
     retain_bdd_display_nodes(&mut view);
+    add_bdd_attribute_rows(graph, &mut view);
     normalize_bdd_edges(&mut view);
     sync_diagram_symbols(&mut view);
     Ok(view)
@@ -3216,7 +3217,7 @@ fn add_bdd_block_nodes(
             }
 
             if !is_bdd_part_usage(element)
-                || !state_diagram_owner_id(element)
+                || !bdd_enclosing_definition_id(graph, element)
                     .is_some_and(|owner_id| block_ids.contains(&owner_id))
             {
                 continue;
@@ -3257,6 +3258,39 @@ fn add_derived_bdd_edges(graph: &Graph, view: &mut DiagramViewDto) {
         .filter(|node| bdd_node_symbol(node).0 == "block")
         .map(|node| node.id.clone())
         .collect::<BTreeSet<_>>();
+
+    // Roll part usages up to their nearest enclosing definition: every part
+    // usage owned (transitively through the definition body) by definition A
+    // and typed by definition B contributes to a single A -> B composition.
+    let mut compositions: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for part in graph
+        .elements()
+        .iter()
+        .filter(|element| is_bdd_part_usage(element))
+    {
+        let Some(source_id) = bdd_enclosing_definition_id(graph, part)
+            .filter(|owner_id| retained_ids.contains(owner_id))
+        else {
+            continue;
+        };
+        for target_id in bdd_usage_definition_ids(part) {
+            if !retained_ids.contains(&target_id) {
+                continue;
+            }
+            compositions
+                .entry((source_id.clone(), target_id))
+                .or_default()
+                .push(bdd_usage_display(part));
+        }
+    }
+
+    // The aggregated definition-level edges are authoritative for their pairs;
+    // drop any usage-graph `part` edges the structure pass emitted for them.
+    view.edges.retain(|edge| {
+        edge.relation != "part"
+            || !compositions.contains_key(&(edge.source.clone(), edge.target.clone()))
+    });
+
     let mut existing_edge_ids = view
         .edges
         .iter()
@@ -3305,39 +3339,32 @@ fn add_derived_bdd_edges(graph: &Graph, view: &mut DiagramViewDto) {
         }
     }
 
-    for part in graph
-        .elements()
-        .iter()
-        .filter(|element| is_bdd_part_usage(element))
-    {
-        let Some(source_id) =
-            state_diagram_owner_id(part).filter(|owner_id| retained_ids.contains(owner_id))
-        else {
-            continue;
-        };
-        for target_id in bdd_usage_definition_ids(part) {
-            if !retained_ids.contains(&target_id) {
-                continue;
-            }
-            let edge_id = format!("{}:part:{}:{}", part.element_id, source_id, target_id);
-            if !existing_edge_ids.insert(edge_id.clone())
-                || !existing_semantic_edges.insert((
-                    "part".to_string(),
-                    source_id.clone(),
-                    target_id.clone(),
-                ))
-            {
-                continue;
-            }
-            view.edges.push(DiagramEdgeDto {
-                id: edge_id,
-                symbol: symbol_id_for_edge("part", &source_id, &target_id),
-                source: source_id.clone(),
-                target: target_id,
-                relation: "part".to_string(),
-                label: state_diagram_label(part),
-            });
+    for ((source_id, target_id), mut usages) in compositions {
+        let count = usages.len();
+        usages.sort();
+        usages.dedup();
+        let mut label = usages.join(", ");
+        if count > 1 {
+            label.push_str(&format!(" ({count})"));
         }
+        let edge_id = format!("{source_id}:part:{target_id}");
+        if !existing_edge_ids.insert(edge_id.clone())
+            || !existing_semantic_edges.insert((
+                "part".to_string(),
+                source_id.clone(),
+                target_id.clone(),
+            ))
+        {
+            continue;
+        }
+        view.edges.push(DiagramEdgeDto {
+            id: edge_id,
+            symbol: symbol_id_for_edge("part", &source_id, &target_id),
+            source: source_id,
+            target: target_id,
+            relation: "part".to_string(),
+            label,
+        });
     }
     view.edges.sort_by(|left, right| left.id.cmp(&right.id));
 }
@@ -3399,6 +3426,97 @@ fn is_bdd_part_usage(element: &Element) -> bool {
 
 fn bdd_usage_definition_ids(element: &Element) -> Vec<String> {
     diagram_string_property_values(element, &["definition", "type", "typed_by", "typedBy"])
+}
+
+/// Walk the owner chain of a usage up to the nearest enclosing block
+/// definition, so usages nested anywhere inside a definition body roll up to
+/// that definition. Returns `None` for usages outside any block definition
+/// (or on an ownership cycle).
+fn bdd_enclosing_definition_id(graph: &Graph, element: &Element) -> Option<String> {
+    let mut visited = BTreeSet::new();
+    let mut current = state_diagram_owner_id(element)?;
+    loop {
+        if !visited.insert(current.clone()) {
+            return None;
+        }
+        let owner = graph.element_by_element_id(&current)?;
+        if is_bdd_block_definition(owner) {
+            return Some(current);
+        }
+        current = state_diagram_owner_id(owner)?;
+    }
+}
+
+fn bdd_usage_display(element: &Element) -> String {
+    let mut display = state_diagram_label(element);
+    if let Some(multiplicity) = state_diagram_string_property(element, &["multiplicity"]) {
+        display.push(' ');
+        if multiplicity.starts_with('[') {
+            display.push_str(&multiplicity);
+        } else {
+            display.push('[');
+            display.push_str(&multiplicity);
+            display.push(']');
+        }
+    }
+    display
+}
+
+fn is_bdd_attribute_usage(element: &Element) -> bool {
+    element_semantic_text(element).contains("attributeusage")
+}
+
+/// Fold attribute usages onto the attribute rows of their enclosing block
+/// definition node (BDDs render attributes as compartment rows, never as
+/// standalone nodes), carrying declared default values where present.
+fn add_bdd_attribute_rows(graph: &Graph, view: &mut DiagramViewDto) {
+    let mut rows_by_definition: BTreeMap<String, Vec<DiagramAttributeDto>> = BTreeMap::new();
+    for attribute in graph
+        .elements()
+        .iter()
+        .filter(|element| is_bdd_attribute_usage(element))
+    {
+        let Some(definition_id) = bdd_enclosing_definition_id(graph, attribute) else {
+            continue;
+        };
+        rows_by_definition
+            .entry(definition_id)
+            .or_default()
+            .push(DiagramAttributeDto {
+                name: state_diagram_label(attribute),
+                type_label: bdd_attribute_type_label(attribute),
+            });
+    }
+    for node in &mut view.nodes {
+        let Some(mut rows) = rows_by_definition.remove(&node.id) else {
+            continue;
+        };
+        rows.sort_by(|left, right| left.name.cmp(&right.name));
+        for row in rows {
+            if !node.attributes.iter().any(|existing| existing.name == row.name) {
+                node.attributes.push(row);
+            }
+        }
+    }
+}
+
+fn bdd_attribute_type_label(element: &Element) -> Option<String> {
+    let type_name = bdd_usage_definition_ids(element)
+        .into_iter()
+        .next()
+        .map(|id| label_for_id(&id));
+    let value = ["value", "declared_value", "default_value", "default"]
+        .iter()
+        .find_map(|key| element.properties.get(*key))
+        .filter(|value| !value.is_null())
+        .map(value_to_text)
+        .filter(|text| !text.trim().is_empty());
+    match (type_name, value) {
+        (Some(type_name), Some(value)) => Some(format!("{type_name} = {value}")),
+        (Some(type_name), None) => Some(type_name),
+        (None, Some(value)) => Some(format!("= {value}")),
+        (None, None) => None,
+    }
 }
 
 fn bdd_node_symbol(node: &DiagramNodeDto) -> (String, serde_json::Map<String, Value>) {
@@ -6208,6 +6326,294 @@ mod tests {
             },
             layout: DiagramLayoutOptionsDto::default(),
             style: DiagramStyleOptionsDto::default(),
+        }
+    }
+
+    fn bdd_spec(root: &str) -> DiagramSpecDto {
+        DiagramSpecDto {
+            kind: DiagramKindDto::Bdd,
+            ..structure_spec(Some(root), Vec::new())
+        }
+    }
+
+    fn bdd_vehicle_fixture_graph() -> (Graph, MetamodelAttributeRegistry) {
+        fn element(id: &str, kind: &str, properties: BTreeMap<String, Value>) -> KirElement {
+            KirElement {
+                id: id.to_string(),
+                kind: kind.to_string(),
+                layer: 2,
+                properties,
+            }
+        }
+
+        let document = KirDocument {
+            metadata: BTreeMap::new(),
+            elements: vec![
+                element(
+                    "pkg.Fleet",
+                    "Package",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("Fleet")),
+                        ("qualified_name".to_string(), json!("Fleet")),
+                    ]),
+                ),
+                element(
+                    "type.Fleet.Platform",
+                    "PartDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("Platform")),
+                        ("owner".to_string(), json!("pkg.Fleet")),
+                    ]),
+                ),
+                element(
+                    "type.Fleet.Vehicle",
+                    "PartDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("Vehicle")),
+                        ("owner".to_string(), json!("pkg.Fleet")),
+                        ("specializes".to_string(), json!(["type.Fleet.Platform"])),
+                    ]),
+                ),
+                element(
+                    "type.Fleet.Chassis",
+                    "PartDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("Chassis")),
+                        ("owner".to_string(), json!("pkg.Fleet")),
+                    ]),
+                ),
+                element(
+                    "type.Fleet.Battery",
+                    "PartDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("Battery")),
+                        ("owner".to_string(), json!("pkg.Fleet")),
+                    ]),
+                ),
+                element(
+                    "type.Fleet.Motor",
+                    "PartDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("Motor")),
+                        ("owner".to_string(), json!("pkg.Fleet")),
+                    ]),
+                ),
+                element(
+                    "type.Fleet.Wheel",
+                    "PartDefinition",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("Wheel")),
+                        ("owner".to_string(), json!("pkg.Fleet")),
+                    ]),
+                ),
+                element(
+                    "part.Fleet.Vehicle.chassis",
+                    "PartUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("chassis")),
+                        ("owner".to_string(), json!("type.Fleet.Vehicle")),
+                        ("definition".to_string(), json!("type.Fleet.Chassis")),
+                    ]),
+                ),
+                element(
+                    "part.Fleet.Vehicle.battery",
+                    "PartUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("battery")),
+                        ("owner".to_string(), json!("type.Fleet.Vehicle")),
+                        ("definition".to_string(), json!("type.Fleet.Battery")),
+                        ("multiplicity".to_string(), json!("2")),
+                    ]),
+                ),
+                // Untyped grouping usage: the nested motor usage below must
+                // still roll up to Vehicle through it.
+                element(
+                    "part.Fleet.Vehicle.drivetrain",
+                    "PartUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("drivetrain")),
+                        ("owner".to_string(), json!("type.Fleet.Vehicle")),
+                    ]),
+                ),
+                element(
+                    "part.Fleet.Vehicle.drivetrain.motor",
+                    "PartUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("motor")),
+                        ("owner".to_string(), json!("part.Fleet.Vehicle.drivetrain")),
+                        ("definition".to_string(), json!("type.Fleet.Motor")),
+                    ]),
+                ),
+                // Two usages of the same definition: must merge into a single
+                // composition edge with a combined label and count.
+                element(
+                    "part.Fleet.Vehicle.frontWheel",
+                    "PartUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("frontWheel")),
+                        ("owner".to_string(), json!("type.Fleet.Vehicle")),
+                        ("definition".to_string(), json!("type.Fleet.Wheel")),
+                    ]),
+                ),
+                element(
+                    "part.Fleet.Vehicle.rearWheel",
+                    "PartUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("rearWheel")),
+                        ("owner".to_string(), json!("type.Fleet.Vehicle")),
+                        ("definition".to_string(), json!("type.Fleet.Wheel")),
+                    ]),
+                ),
+                element(
+                    "attr.Fleet.Vehicle.mass",
+                    "AttributeUsage",
+                    BTreeMap::from([
+                        ("declared_name".to_string(), json!("mass")),
+                        ("owner".to_string(), json!("type.Fleet.Vehicle")),
+                        ("type".to_string(), json!("Real")),
+                        ("value".to_string(), json!(1200)),
+                    ]),
+                ),
+            ],
+        };
+        let graph = Graph::from_document(document).expect("bdd fixture graph should be valid");
+        let registry = MetamodelAttributeRegistry::build(&graph);
+        (graph, registry)
+    }
+
+    #[test]
+    fn bdd_diagram_rolls_up_definition_level_composition() {
+        let (graph, registry) = bdd_vehicle_fixture_graph();
+        let view = render_diagram(&graph, &registry, bdd_spec("pkg.Fleet"))
+            .expect("bdd diagram should render");
+
+        let node_ids = view
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            node_ids,
+            vec![
+                "type.Fleet.Battery",
+                "type.Fleet.Chassis",
+                "type.Fleet.Motor",
+                "type.Fleet.Platform",
+                "type.Fleet.Vehicle",
+                "type.Fleet.Wheel",
+            ],
+            "bdd shows only block definitions: no package, usage, or attribute nodes"
+        );
+
+        assert!(
+            view.edges.iter().all(|edge| edge.relation != "owner"),
+            "bdd must not emit ownership/containment edges"
+        );
+
+        let part_edges = view
+            .edges
+            .iter()
+            .filter(|edge| edge.relation == "part")
+            .map(|edge| {
+                (
+                    edge.source.as_str(),
+                    edge.target.as_str(),
+                    edge.label.as_str(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            part_edges,
+            vec![
+                ("type.Fleet.Vehicle", "type.Fleet.Battery", "battery [2]"),
+                ("type.Fleet.Vehicle", "type.Fleet.Chassis", "chassis"),
+                (
+                    "type.Fleet.Vehicle",
+                    "type.Fleet.Motor",
+                    "motor"
+                ),
+                (
+                    "type.Fleet.Vehicle",
+                    "type.Fleet.Wheel",
+                    "frontWheel, rearWheel (2)"
+                ),
+            ],
+            "composition rolls up to definitions, including nested usages, one edge per pair"
+        );
+
+        let specialization_edges = view
+            .edges
+            .iter()
+            .filter(|edge| edge.relation == "specializes")
+            .map(|edge| {
+                (
+                    edge.source.as_str(),
+                    edge.target.as_str(),
+                    edge.label.as_str(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            specialization_edges,
+            vec![("type.Fleet.Vehicle", "type.Fleet.Platform", ":>")],
+            "definition-level specialization edges are preserved"
+        );
+
+        let vehicle = view
+            .nodes
+            .iter()
+            .find(|node| node.id == "type.Fleet.Vehicle")
+            .expect("vehicle node is present");
+        let mass_row = vehicle
+            .attributes
+            .iter()
+            .find(|attribute| attribute.name == "mass")
+            .expect("attribute usages ride the definition node as attribute rows");
+        assert_eq!(mass_row.type_label.as_deref(), Some("Real = 1200"));
+    }
+
+    #[test]
+    fn bdd_diagram_composition_edges_use_part_symbol_records() {
+        let (graph, registry) = bdd_vehicle_fixture_graph();
+        let view = render_diagram(&graph, &registry, bdd_spec("pkg.Fleet"))
+            .expect("bdd diagram should render");
+
+        let wheel_edges = view
+            .edges
+            .iter()
+            .filter(|edge| edge.relation == "part" && edge.target == "type.Fleet.Wheel")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            wheel_edges.len(),
+            1,
+            "duplicate part usages of one definition merge into a single edge"
+        );
+        let wheel_edge = wheel_edges[0];
+        assert_eq!(wheel_edge.id, "type.Fleet.Vehicle:part:type.Fleet.Wheel");
+
+        let symbol = view
+            .symbols
+            .iter()
+            .find(|symbol| symbol.id == wheel_edge.symbol)
+            .expect("composition edge has a symbol record");
+        assert_eq!(symbol.role, "edge");
+        assert_eq!(symbol.relation.as_deref(), Some("part"));
+        assert_eq!(
+            symbol
+                .properties
+                .get("source_decoration")
+                .and_then(Value::as_str),
+            Some("filled_diamond"),
+            "composition symbol carries the filled-diamond decoration for the client resolver"
+        );
+
+        for node in &view.nodes {
+            let node_symbol = view
+                .symbols
+                .iter()
+                .find(|symbol| symbol.id == node.symbol)
+                .expect("definition node has a symbol record");
+            assert_eq!(node_symbol.role, "block");
         }
     }
 
