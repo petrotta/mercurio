@@ -4770,7 +4770,7 @@ fn symbol_id_for_transition_edge(id: &str) -> String {
 fn render_structure_diagram(
     graph: &Graph,
     metamodel_registry: &MetamodelAttributeRegistry,
-    spec: DiagramSpecDto,
+    mut spec: DiagramSpecDto,
 ) -> Result<DiagramViewDto, DiagramError> {
     let total_start = Instant::now();
     let mut timings = Vec::new();
@@ -4785,13 +4785,23 @@ fn render_structure_diagram(
     timings.push(("relations", relation_start.elapsed()));
 
     let traversal_start = Instant::now();
-    let traversal = if let Some(root) = spec.root.as_deref().filter(|root| !root.trim().is_empty())
-    {
+    let requested_root = spec
+        .root
+        .as_deref()
+        .map(str::trim)
+        .filter(|root| !root.is_empty())
+        .map(str::to_string);
+    let traversal = if let Some(root_query) = requested_root {
         let root_start = Instant::now();
-        let root = resolve_root(graph, root)
-            .ok_or_else(|| DiagramError::RootNotFound(root.to_string()))?;
+        let root = resolve_root(graph, &root_query)
+            .ok_or_else(|| DiagramError::RootNotFound(root_query.clone()))?;
         timings.push(("root", root_start.elapsed()));
-        collect_structure_ids(graph, root.id, &spec.query, &relations)
+        let root_node_id = root.id;
+        // Canonicalize the requested root so kind-specific passes that look
+        // the root up again by exact element id agree with the fuzzy
+        // resolution used for the traversal.
+        spec.root = Some(root.element_id.clone());
+        collect_structure_ids(graph, root_node_id, &spec.query, &relations)
     } else {
         collect_unrooted_structure_ids(graph, &spec.query)
     };
@@ -5018,10 +5028,27 @@ fn collect_unrooted_structure_ids(
         .iter()
         .filter(|element| include_element(element, query))
         .collect::<Vec<_>>();
-    let mut visible_ids = matching_elements
+    // Unrooted diagrams describe the authored model, so seed from user-layer
+    // top-level packages when any exist: seeding from every top-level package
+    // lets a large library base (e.g. a prewarmed stdlib graph) exhaust the
+    // node budget before the first user element is reached.
+    let top_level_packages = matching_elements
         .iter()
         .copied()
         .filter(|element| is_top_level_package(graph, element))
+        .collect::<Vec<_>>();
+    let user_packages = top_level_packages
+        .iter()
+        .copied()
+        .filter(|element| element.layer >= 2)
+        .collect::<Vec<_>>();
+    let seeds = if user_packages.is_empty() {
+        &top_level_packages
+    } else {
+        &user_packages
+    };
+    let mut visible_ids = seeds
+        .iter()
         .take(max_nodes)
         .map(|element| element.id)
         .collect::<BTreeSet<_>>();
@@ -5032,6 +5059,13 @@ fn collect_unrooted_structure_ids(
         visible_ids = matching_elements
             .iter()
             .copied()
+            .filter(|element| element.layer >= 2)
+            .chain(
+                matching_elements
+                    .iter()
+                    .copied()
+                    .filter(|element| element.layer < 2),
+            )
             .take(max_nodes)
             .map(|element| element.id)
             .collect::<BTreeSet<_>>();
@@ -5134,19 +5168,34 @@ fn resolve_root<'a>(graph: &'a Graph, root: &str) -> Option<&'a Element> {
     }
 
     let normalized_root = root.trim().to_ascii_lowercase();
-    graph.elements().iter().find(|element| {
-        label_for_id(&element.element_id).to_ascii_lowercase() == normalized_root
-            || element
+    // Qualified names ("RoverParts::Wheel") address dotted element ids whose
+    // leading segment is a sort tag ("type.RoverParts.Wheel"), so compare the
+    // tag-stripped id in qualified spelling as well.
+    let qualified_root = normalized_root.replace("::", ".");
+    graph
+        .elements()
+        .iter()
+        .find(|element| {
+            element
                 .element_id
-                .rsplit("::")
-                .next()
-                .is_some_and(|name| name.eq_ignore_ascii_case(root))
-            || element
-                .element_id
-                .rsplit('.')
-                .next()
-                .is_some_and(|name| name.eq_ignore_ascii_case(root))
-    })
+                .split_once('.')
+                .is_some_and(|(_, path)| path.eq_ignore_ascii_case(&qualified_root))
+        })
+        .or_else(|| {
+            graph.elements().iter().find(|element| {
+                label_for_id(&element.element_id).to_ascii_lowercase() == normalized_root
+                    || element
+                        .element_id
+                        .rsplit("::")
+                        .next()
+                        .is_some_and(|name| name.eq_ignore_ascii_case(root))
+                    || element
+                        .element_id
+                        .rsplit('.')
+                        .next()
+                        .is_some_and(|name| name.eq_ignore_ascii_case(root))
+            })
+        })
 }
 
 fn include_element(element: &Element, query: &DiagramQueryOptionsDto) -> bool {
@@ -6570,6 +6619,92 @@ mod tests {
             .find(|attribute| attribute.name == "mass")
             .expect("attribute usages ride the definition node as attribute rows");
         assert_eq!(mass_row.type_label.as_deref(), Some("Real = 1200"));
+    }
+
+    #[test]
+    fn bdd_diagram_resolves_fuzzy_and_qualified_root_names() {
+        let (graph, registry) = bdd_vehicle_fixture_graph();
+        for (root, canonical) in [
+            ("Fleet", "pkg.Fleet"),
+            ("Fleet::Vehicle", "type.Fleet.Vehicle"),
+            ("Vehicle", "type.Fleet.Vehicle"),
+        ] {
+            let view = render_diagram(&graph, &registry, bdd_spec(root))
+                .unwrap_or_else(|error| panic!("root `{root}` should render: {error:?}"));
+            assert_eq!(
+                view.spec.root.as_deref(),
+                Some(canonical),
+                "root `{root}` should canonicalize to `{canonical}`"
+            );
+            assert!(
+                view.nodes.iter().any(|node| node.id == "type.Fleet.Vehicle"),
+                "root `{root}` should surface the Vehicle block, got {:?}",
+                view.nodes
+                    .iter()
+                    .map(|node| node.id.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn unrooted_diagram_seeds_user_model_before_large_library_base() {
+        // A library base larger than the traversal budget must not starve the
+        // user model out of an unrooted render.
+        let mut elements = (0..2 * DEFAULT_MAX_NODES)
+            .map(|index| KirElement {
+                id: format!("LibraryPackage{index:04}"),
+                kind: "Package".to_string(),
+                layer: 1,
+                properties: BTreeMap::new(),
+            })
+            .collect::<Vec<_>>();
+        elements.push(KirElement {
+            id: "pkg.Rover".to_string(),
+            kind: "Package".to_string(),
+            layer: 2,
+            properties: BTreeMap::from([("declared_name".to_string(), json!("Rover"))]),
+        });
+        elements.push(KirElement {
+            id: "type.Rover.Rover".to_string(),
+            kind: "PartDefinition".to_string(),
+            layer: 2,
+            properties: BTreeMap::from([
+                ("declared_name".to_string(), json!("Rover")),
+                ("owner".to_string(), json!("pkg.Rover")),
+            ]),
+        });
+        let document = KirDocument {
+            metadata: BTreeMap::new(),
+            elements,
+        };
+        let graph = Graph::from_document(document).expect("graph should build");
+        let registry = MetamodelAttributeRegistry::build(&graph);
+
+        let mut spec = structure_spec(None, Vec::new());
+        spec.query.include_libraries = true;
+        let view = render_diagram(&graph, &registry, spec.clone())
+            .expect("unrooted structure diagram should render");
+        assert_eq!(
+            view.nodes
+                .iter()
+                .map(|node| node.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["pkg.Rover", "type.Rover.Rover"],
+            "unrooted structure render seeds from the user model"
+        );
+
+        spec.kind = DiagramKindDto::Bdd;
+        let view =
+            render_diagram(&graph, &registry, spec).expect("unrooted bdd diagram should render");
+        assert!(
+            view.nodes.iter().any(|node| node.id == "type.Rover.Rover"),
+            "unrooted bdd render keeps the user blocks, got {:?}",
+            view.nodes
+                .iter()
+                .map(|node| node.id.as_str())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
