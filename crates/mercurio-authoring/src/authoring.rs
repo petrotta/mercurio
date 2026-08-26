@@ -492,7 +492,8 @@ impl AuthoringProject {
         let mut project = Self::default();
         for (path, parsed) in modules {
             let module = AuthoringModule::from_ast(&parsed);
-            let source_map = FileSourceMap::from_ast(&parsed);
+            let source_map =
+                FileSourceMap::from_ast(&parsed, original_texts.get(&path).map(String::as_str));
             project.files.insert(
                 path.clone(),
                 FileModel {
@@ -2924,12 +2925,14 @@ fn usage_from_ast_like(usage: &crate::frontend::ast::GenericUsageDecl) -> Usage 
 }
 
 impl FileSourceMap {
-    fn from_ast(module: &ParsedModule) -> Self {
+    fn from_ast(module: &ParsedModule, original_text: Option<&str>) -> Self {
+        let lines = original_text.map(|text| text.lines().collect::<Vec<_>>());
+        let lines = lines.as_deref();
         let mut map = Self {
-            package: module.package.as_ref().map(|package| SourceNode {
-                span: package.span.clone(),
-                indent: package.span.start_col.saturating_sub(1),
-            }),
+            package: module
+                .package
+                .as_ref()
+                .map(|package| source_node_covering_docs(&package.span, package.docs.len(), lines)),
             declarations: BTreeMap::new(),
         };
         if let Some(package) = &module.package {
@@ -2937,11 +2940,12 @@ impl FileSourceMap {
                 &package.members,
                 &package.name.segments.join("."),
                 Some(&package.name.segments.join(".")),
+                lines,
                 &mut map.declarations,
             );
         }
         if module.package.is_none() {
-            collect_source_nodes(&module.members, "", None, &mut map.declarations);
+            collect_source_nodes(&module.members, "", None, lines, &mut map.declarations);
         }
         map
     }
@@ -2951,6 +2955,7 @@ fn collect_source_nodes(
     declarations: &[AstDeclaration],
     owner: &str,
     parent_qname: Option<&str>,
+    lines: Option<&[&str]>,
     nodes: &mut BTreeMap<String, SourceNode>,
 ) {
     for declaration in declarations {
@@ -2958,15 +2963,13 @@ fn collect_source_nodes(
             let qname = qualify_name(owner, &definition.name);
             nodes.insert(
                 qname.clone(),
-                SourceNode {
-                    span: definition.span.clone(),
-                    indent: definition.span.start_col.saturating_sub(1),
-                },
+                source_node_covering_docs(&definition.span, definition.docs.len(), lines),
             );
             collect_source_nodes(
                 &definition.members,
                 &qname,
                 Some(parent_or_self(parent_qname, &qname)),
+                lines,
                 nodes,
             );
             continue;
@@ -2975,15 +2978,13 @@ fn collect_source_nodes(
             let qname = qualify_name(owner, &usage.name);
             nodes.insert(
                 qname.clone(),
-                SourceNode {
-                    span: usage.span.clone(),
-                    indent: usage.span.start_col.saturating_sub(1),
-                },
+                source_node_covering_docs(&usage.span, usage.docs.len(), lines),
             );
             collect_source_nodes(
                 &usage.body_members,
                 &qname,
                 Some(parent_or_self(parent_qname, &qname)),
+                lines,
                 nodes,
             );
             continue;
@@ -2994,27 +2995,96 @@ fn collect_source_nodes(
                 let qname = qualify_name(owner, &package.name.segments.join("."));
                 nodes.insert(
                     qname.clone(),
-                    SourceNode {
-                        span: package.span.clone(),
-                        indent: package.span.start_col.saturating_sub(1),
-                    },
+                    source_node_covering_docs(&package.span, package.docs.len(), lines),
                 );
-                collect_source_nodes(&package.members, &qname, Some(&qname), nodes);
+                collect_source_nodes(&package.members, &qname, Some(&qname), lines, nodes);
             }
             AstDeclaration::Import(_) => {}
             AstDeclaration::Alias(alias) => {
                 let qname = qualify_name(owner, &alias.name);
                 nodes.insert(
                     qname,
-                    SourceNode {
-                        span: alias.span.clone(),
-                        indent: alias.span.start_col.saturating_sub(1),
-                    },
+                    source_node_covering_docs(&alias.span, alias.docs.len(), lines),
                 );
             }
             _ => unreachable!("definition-like and usage-like declarations are handled above"),
         }
     }
+}
+
+/// Builds the source node for a declaration, widening the recorded span
+/// upward over the declaration's own leading `doc /* ... */` lines. The
+/// canonical printer emits docs immediately above the declaration keyword
+/// while the parse-time span starts at the keyword itself; a localized
+/// splice re-renders the declaration *including* its docs, so the span must
+/// cover the doc bytes already in the source or the splice would duplicate
+/// them. When the source layout cannot be proven to be exactly `docs`
+/// adjacent doc annotations, the span is left unwidened and write-back
+/// falls back to the canonical rewrite exactly as before.
+fn source_node_covering_docs(
+    span: &SourceSpan,
+    docs: usize,
+    lines: Option<&[&str]>,
+) -> SourceNode {
+    let indent = span.start_col.saturating_sub(1);
+    let mut span = span.clone();
+    if docs > 0
+        && let Some(lines) = lines
+        && let Some((start_line, start_col)) = doc_run_start(lines, span.start_line, docs)
+    {
+        span.start_line = start_line;
+        span.start_col = start_col;
+    }
+    SourceNode { span, indent }
+}
+
+/// 1-based start position of the run of exactly `docs` doc annotations
+/// sitting directly above `decl_start_line`, or `None` when those lines do
+/// not form one.
+fn doc_run_start(lines: &[&str], decl_start_line: usize, docs: usize) -> Option<(usize, usize)> {
+    let mut line = decl_start_line;
+    for _ in 0..docs {
+        line = doc_block_start_above(lines, line)?;
+    }
+    let text = lines.get(line.checked_sub(1)?)?;
+    let col = text.len() - text.trim_start().len() + 1;
+    Some((line, col))
+}
+
+/// First line of the `doc /* ... */` annotation whose last line sits
+/// directly above `below_line`, or `None` if those lines don't form exactly
+/// one doc annotation.
+fn doc_block_start_above(lines: &[&str], below_line: usize) -> Option<usize> {
+    let end_line = below_line.checked_sub(1)?;
+    if end_line == 0 || !lines.get(end_line - 1)?.trim_end().ends_with("*/") {
+        return None;
+    }
+    let mut start_line = end_line;
+    loop {
+        if lines.get(start_line - 1)?.trim_start().starts_with("doc") {
+            let block = lines[start_line - 1..end_line].join("\n");
+            return is_single_doc_annotation(&block).then_some(start_line);
+        }
+        start_line -= 1;
+        if start_line == 0 {
+            return None;
+        }
+    }
+}
+
+/// True when `block` is exactly one `doc /* ... */` annotation — the `doc`
+/// keyword, one block comment, and nothing else.
+fn is_single_doc_annotation(block: &str) -> bool {
+    let Some(rest) = block.trim_start().strip_prefix("doc") else {
+        return false;
+    };
+    let Some(interior) = rest.trim_start().strip_prefix("/*") else {
+        return false;
+    };
+    let Some(close) = interior.find("*/") else {
+        return false;
+    };
+    interior[close + 2..].trim().is_empty()
 }
 
 fn parent_or_self<'a>(parent_qname: Option<&'a str>, fallback: &'a str) -> &'a str {
@@ -7816,5 +7886,94 @@ mod tests {
         // inside the patch.
         assert_eq!(text.matches("// vehicle def").count(), 1, "{text}");
         assert_eq!(text.matches("// keep me").count(), 1, "{text}");
+    }
+
+    const DOC_SOURCE: &str = "// keep me\npackage Demo {\n    // vehicle def\n    doc /* Drives the demo. */\n    part def Vehicle;\n}\n";
+
+    /// Hand-built AST mirroring `DOC_SOURCE`: the declaration carries a doc
+    /// that the source spells in the doc-before form the canonical printer
+    /// emits, with the parse span starting at the declaration keyword.
+    fn doc_commented_project() -> super::AuthoringProject {
+        use crate::frontend::ast;
+
+        let vehicle = ast::Declaration::GenericDefinition(ast::GenericDefinitionDecl {
+            keyword: "part".to_string(),
+            name: "Vehicle".to_string(),
+            specializes: Vec::new(),
+            members: Vec::new(),
+            comments: vec![crate::frontend::ast::CommentNote {
+                text: " vehicle def".to_string(),
+                kind: crate::frontend::ast::CommentKind::Line,
+            }],
+            docs: vec!["Drives the demo.".to_string()],
+            modifiers: Vec::new(),
+            span: ast_span(5, 5, 5, 21),
+        });
+        let package = ast::PackageDecl {
+            name: ast::QualifiedName {
+                segments: vec!["Demo".to_string()],
+                span: ast_span(2, 9, 2, 12),
+            },
+            members: vec![vehicle],
+            imports: Vec::new(),
+            definitions: Vec::new(),
+            comments: vec![crate::frontend::ast::CommentNote {
+                text: " keep me".to_string(),
+                kind: crate::frontend::ast::CommentKind::Line,
+            }],
+            docs: Vec::new(),
+            modifiers: Vec::new(),
+            span: ast_span(2, 1, 6, 1),
+        };
+        let module = crate::frontend::ast::ParsedModule {
+            package: Some(package),
+            members: Vec::new(),
+            imports: Vec::new(),
+            definitions: Vec::new(),
+        };
+        super::AuthoringProject::from_parsed_modules(
+            BTreeMap::from([("demo.sysml".to_string(), module)]),
+            BTreeMap::from([("demo.sysml".to_string(), DOC_SOURCE.to_string())]),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn localized_replace_of_doc_bearing_declaration_covers_the_doc_line() {
+        let mut project = doc_commented_project();
+        let mutation = manual_mutation(vec![replace_node("Demo.Vehicle")]);
+
+        let write_back = project.write_back_mutation(&mutation).unwrap();
+
+        assert_eq!(write_back.mode, super::WriteBackMode::LocalizedPatch);
+        let text = &write_back.edited_files["demo.sysml"];
+        // The re-render includes the doc line, so the recorded span must
+        // cover the doc bytes already in the source; a keyword-anchored
+        // splice would duplicate them.
+        assert_eq!(text.matches("doc /* Drives the demo. */").count(), 1, "{text}");
+        assert_eq!(text, DOC_SOURCE, "an identity re-render must be byte-stable");
+    }
+
+    #[test]
+    fn localized_doc_edit_replaces_the_existing_doc_line_in_place() {
+        let mut project = doc_commented_project();
+        let mutation = project
+            .apply_semantic_edit(SemanticEdit::SetAttribute {
+                element: qname("Demo.Vehicle"),
+                attribute: "text".to_string(),
+                value: json!("Updated."),
+                policy: AttributeWritePolicy::UpsertDirect,
+            })
+            .unwrap();
+
+        let write_back = project.write_back_mutation(&mutation).unwrap();
+
+        assert_eq!(write_back.mode, super::WriteBackMode::LocalizedPatch);
+        let text = &write_back.edited_files["demo.sysml"];
+        assert_eq!(
+            text,
+            "// keep me\npackage Demo {\n    // vehicle def\n    doc /* Updated. */\n    part def Vehicle;\n}\n",
+            "the doc edit must swap the doc line without touching anything else"
+        );
     }
 }

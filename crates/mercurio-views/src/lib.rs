@@ -2746,6 +2746,7 @@ fn table_cell_value(graph: &Graph, element: &Element, column: &TableColumnSpecDt
         "text" => effective_property_text(graph, element, "text")
             .or_else(|| effective_property_text(graph, element, "body"))
             .or_else(|| effective_property_text(graph, element, "doc"))
+            .or_else(|| owned_documentation_text(graph, element))
             .unwrap_or_default(),
         other => effective_property_text(graph, element, other).unwrap_or_default(),
     }
@@ -2782,9 +2783,31 @@ fn resolve_table_path(graph: &Graph, element: &Element, path: &str) -> Option<St
         "text" => effective_property_text(graph, element, "text")
             .or_else(|| effective_property_text(graph, element, "body"))
             .or_else(|| effective_property_text(graph, element, "doc"))
+            .or_else(|| owned_documentation_text(graph, element))
             .unwrap_or_default(),
         other => effective_property_text(graph, element, other).unwrap_or_default(),
     })
+}
+
+/// A declaration's `doc /* ... */` text compiles to owned `Documentation`
+/// elements (`body` + `owner`), not to a direct property on the documented
+/// element, so the `text` column falls back to joining those bodies.
+fn owned_documentation_text(graph: &Graph, element: &Element) -> Option<String> {
+    let bodies = graph
+        .elements()
+        .iter()
+        .filter(|candidate| kind_matches(candidate, &["Documentation"]))
+        .filter(|candidate| {
+            candidate
+                .properties
+                .get("owner")
+                .and_then(Value::as_str)
+                .is_some_and(|owner| owner == element.element_id)
+        })
+        .filter_map(|candidate| candidate.properties.get("body").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    (!bodies.is_empty()).then(|| bodies.join("\n"))
 }
 
 fn resolve_metadata_path(element: &Element, path: &str) -> Option<String> {
@@ -6875,6 +6898,81 @@ mod tests {
             row.cells
                 .iter()
                 .any(|cell| cell.key == "text" && cell.value.contains("unsafe starts"))
+        );
+    }
+
+    /// Requirement text authored as `doc /* ... */` compiles to an owned
+    /// `Documentation` element, not to a `text` property on the requirement;
+    /// the TEXT column must fall back to that documentation body.
+    #[test]
+    fn requirements_table_text_falls_back_to_owned_documentation_body() {
+        let requirement = KirElement {
+            id: "req.Example.SoftStop".to_string(),
+            kind: "SysML::Requirements::RequirementUsage".to_string(),
+            layer: 2,
+            properties: BTreeMap::from([
+                ("declared_name".to_string(), json!("SoftStop")),
+                ("qualified_name".to_string(), json!("Example.SoftStop")),
+                ("owner".to_string(), json!("pkg.Example")),
+            ]),
+        };
+        let documentation = KirElement {
+            id: "doc.req.Example.SoftStop.1".to_string(),
+            kind: "KerML::Root::Documentation".to_string(),
+            layer: 2,
+            properties: BTreeMap::from([
+                ("owner".to_string(), json!("req.Example.SoftStop")),
+                ("body".to_string(), json!("The vehicle shall stop smoothly.")),
+            ]),
+        };
+        let mut document = view_fixture_document();
+        document.elements.push(requirement);
+        document.elements.push(documentation);
+        let graph = Graph::from_document(document).expect("sample graph should rebuild");
+        let registry = MetamodelAttributeRegistry::build(&graph);
+
+        let view = render_table(
+            &graph,
+            &registry,
+            TableSpecDto {
+                version: 1,
+                kind: TableKindDto::Requirements,
+                title: "Requirements".to_string(),
+                description: None,
+                root: Some("pkg.Example".to_string()),
+                target_type: None,
+                scope: TableScopeDto::WholeModel,
+                row_type: None,
+                column_scope: None,
+                column_type: None,
+                relations: Vec::new(),
+                matrix_preset: None,
+                query: DiagramQueryOptionsDto {
+                    relations: vec!["owner".to_string()],
+                    direction: DiagramDirectionDto::Children,
+                    depth: 2,
+                    include_libraries: false,
+                    include_user_model: true,
+                    max_nodes: 350,
+                    max_edges: 900,
+                },
+                columns: Vec::new(),
+                show_affordances: false,
+            },
+        )
+        .expect("requirements table should render");
+
+        let row = view
+            .rows
+            .iter()
+            .find(|row| row.element == "req.Example.SoftStop")
+            .expect("documented requirement row should render");
+        assert!(
+            row.cells
+                .iter()
+                .any(|cell| cell.key == "text"
+                    && cell.value == "The vehicle shall stop smoothly."),
+            "{row:#?}"
         );
     }
 
