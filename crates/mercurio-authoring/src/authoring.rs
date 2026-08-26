@@ -576,6 +576,135 @@ impl AuthoringProject {
         Ok(semantic_attributes_for_declaration(declaration))
     }
 
+    /// Resolve a possibly-unqualified reference to the canonical qualified
+    /// name of an element declared somewhere in this project.
+    ///
+    /// The mutation pipeline must accept every reference the language compiler
+    /// accepts in source, so resolution mirrors SysML name resolution as
+    /// closely as the authoring model allows. Candidates are tried in order:
+    ///
+    /// 1. **Absolute** — `name` is already a full path from a file root
+    ///    (`RoverParts::Chassis`, or the equivalent `RoverParts.Chassis`).
+    /// 2. **Relative to `scope`** — `name` is looked up against `scope` and
+    ///    each of its enclosing owners, innermost first, so a sibling inside
+    ///    the same definition or package resolves by simple name.
+    /// 3. **Through imports visible from `scope`** — a wildcard
+    ///    `import RoverParts::*;` puts `Chassis` in scope as `RoverParts.Chassis`,
+    ///    and an explicit `import RoverParts::Chassis;` binds the simple name.
+    ///    Only imports on the file root and on packages that enclose `scope`
+    ///    are considered.
+    /// 4. **Unique project-wide suffix match** — as a last resort a name that
+    ///    matches exactly one declared element anywhere in the project
+    ///    resolves to it. Ambiguous suffixes deliberately do not resolve.
+    ///
+    /// Both `.` and `::` separators are accepted throughout: callers reach
+    /// this through [`QualifiedName::parse`], which normalizes either spelling
+    /// into segments. Returns the canonical name (dot-joined segments) so
+    /// callers can compare against declared names without re-normalizing.
+    pub fn resolve_element_name(
+        &self,
+        name: &QualifiedName,
+        scope: Option<&QualifiedName>,
+    ) -> Option<QualifiedName> {
+        if name.0.is_empty() {
+            return None;
+        }
+        let declared = self.declared_element_names();
+        let target = name.as_dot_string();
+
+        // 1. Absolute path.
+        if declared.contains(&target) {
+            return Some(name.clone());
+        }
+
+        // 2. Relative to the scope chain, innermost owner first.
+        if let Some(scope) = scope {
+            for depth in (0..scope.0.len()).rev() {
+                let candidate = qualify_name(&scope.0[..=depth].join("."), &target);
+                if declared.contains(&candidate) {
+                    return Some(QualifiedName::parse(&candidate));
+                }
+            }
+        }
+
+        // 3. Through imports visible from the scope.
+        if let Some(scope) = scope {
+            let first_segment = name.0.first().map(String::as_str).unwrap_or_default();
+            for import in self.visible_import_paths(scope) {
+                let mut segments = import.0.clone();
+                let Some(last) = segments.pop() else {
+                    continue;
+                };
+                // `import Pkg::*;` (and the recursive `::**`) bring the
+                // package members into scope under their simple names;
+                // `import Pkg::Chassis;` binds just that one name.
+                if last != "*" && last != "**" && last != first_segment {
+                    continue;
+                }
+                let candidate = qualify_name(&segments.join("."), &target);
+                if declared.contains(&candidate) {
+                    return Some(QualifiedName::parse(&candidate));
+                }
+            }
+        }
+
+        // 4. Unique project-wide suffix match.
+        let suffix = format!(".{target}");
+        let mut matches = declared.iter().filter(|name| name.ends_with(&suffix));
+        if let Some(unique) = matches.next()
+            && matches.next().is_none()
+        {
+            return Some(QualifiedName::parse(unique));
+        }
+
+        None
+    }
+
+    /// Every element declared in this project, as canonical dot-joined names.
+    fn declared_element_names(&self) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        for file in self.files.values() {
+            if let Some(package) = &file.module.package {
+                let package_name = package.name.as_dot_string();
+                names.insert(package_name.clone());
+                collect_declared_element_names(&package.members, &package_name, &mut names);
+            }
+            collect_declared_element_names(&file.module.members, "", &mut names);
+        }
+        names
+    }
+
+    /// Import paths in view from `scope`: those on the root of the file that
+    /// declares `scope`, plus those on each package enclosing it.
+    fn visible_import_paths(&self, scope: &QualifiedName) -> Vec<QualifiedName> {
+        let scope_name = scope.as_dot_string();
+        let mut paths = Vec::new();
+        for file in self.files.values() {
+            let declares_scope = locate_declaration_in_module(&file.module, scope).is_some()
+                || file
+                    .module
+                    .package
+                    .as_ref()
+                    .is_some_and(|package| package.name == *scope);
+            if !declares_scope {
+                continue;
+            }
+            collect_visible_import_paths(&file.module.members, "", &scope_name, &mut paths);
+            if let Some(package) = &file.module.package {
+                let package_name = package.name.as_dot_string();
+                if scope_within_owner(&scope_name, &package_name) {
+                    collect_visible_import_paths(
+                        &package.members,
+                        &package_name,
+                        &scope_name,
+                        &mut paths,
+                    );
+                }
+            }
+        }
+        paths
+    }
+
     pub fn apply_semantic_edit(
         &mut self,
         edit: SemanticEdit,
@@ -5348,6 +5477,61 @@ fn render_for_splice(rendered: &str, indent: usize) -> String {
     spliced
 }
 
+fn collect_declared_element_names(
+    declarations: &[Declaration],
+    owner: &str,
+    names: &mut BTreeSet<String>,
+) {
+    for declaration in declarations {
+        match declaration {
+            Declaration::Package(package) => {
+                let current = qualify_name(owner, &package.name.as_dot_string());
+                names.insert(current.clone());
+                collect_declared_element_names(&package.members, &current, names);
+            }
+            Declaration::Definition(definition) => {
+                let current = qualify_name(owner, &definition.name);
+                names.insert(current.clone());
+                collect_declared_element_names(&definition.members, &current, names);
+            }
+            Declaration::Usage(usage) => {
+                let current = qualify_name(owner, &usage.name);
+                names.insert(current.clone());
+                collect_declared_element_names(&usage.members, &current, names);
+            }
+            Declaration::Alias(alias) => {
+                names.insert(qualify_name(owner, &alias.name));
+            }
+            Declaration::Import(_) => {}
+        }
+    }
+}
+
+fn collect_visible_import_paths(
+    declarations: &[Declaration],
+    owner: &str,
+    scope_name: &str,
+    paths: &mut Vec<QualifiedName>,
+) {
+    for declaration in declarations {
+        match declaration {
+            Declaration::Import(import) => paths.push(import.path.clone()),
+            Declaration::Package(package) => {
+                let current = qualify_name(owner, &package.name.as_dot_string());
+                if scope_within_owner(scope_name, &current) {
+                    collect_visible_import_paths(&package.members, &current, scope_name, paths);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// True when `scope_name` is `owner` itself or nested inside it.
+fn scope_within_owner(scope_name: &str, owner: &str) -> bool {
+    scope_name == owner || scope_name.starts_with(&format!("{owner}."))
+}
+
 fn qualify_name(owner: &str, name: &str) -> String {
     if owner.is_empty() {
         name.to_string()
@@ -6280,6 +6464,124 @@ mod tests {
 
     fn qname(value: &str) -> QualifiedName {
         QualifiedName::parse(value)
+    }
+
+    /// Two files: `RoverParts` declares `Chassis`, `RoverSystem` wildcard-imports
+    /// it and declares `Rover`.
+    fn cross_file_resolution_project() -> super::AuthoringProject {
+        use super::{AuthoringModule, Declaration, Definition, FileModel, Import, Package};
+
+        fn package(name: &str, members: Vec<Declaration>) -> Package {
+            Package {
+                name: qname(name),
+                members,
+                comments: Vec::new(),
+                docs: Vec::new(),
+                modifiers: Vec::new(),
+            }
+        }
+        fn definition(name: &str, members: Vec<Declaration>) -> Declaration {
+            Declaration::Definition(Definition {
+                keyword: "part".to_string(),
+                name: name.to_string(),
+                specializes: Vec::new(),
+                members,
+                raw_body: None,
+                comments: Vec::new(),
+                docs: Vec::new(),
+                modifiers: Vec::new(),
+            })
+        }
+        fn import(path: &str) -> Declaration {
+            Declaration::Import(Import {
+                path: qname(path),
+                comments: Vec::new(),
+                docs: Vec::new(),
+                modifiers: Vec::new(),
+            })
+        }
+        fn file(path: &str, package: Package) -> (String, FileModel) {
+            (
+                path.to_string(),
+                FileModel {
+                    path: path.to_string(),
+                    module: AuthoringModule {
+                        package: Some(package),
+                        members: Vec::new(),
+                    },
+                    original_text: None,
+                    source_map: None,
+                },
+            )
+        }
+
+        let mut project = super::AuthoringProject::default();
+        project.files = BTreeMap::from([
+            file(
+                "parts.sysml",
+                package("RoverParts", vec![definition("Chassis", Vec::new())]),
+            ),
+            file(
+                "rover.sysml",
+                package(
+                    "RoverSystem",
+                    vec![
+                        import("RoverParts::*"),
+                        definition("Rover", Vec::new()),
+                        definition("Spare", Vec::new()),
+                    ],
+                ),
+            ),
+        ]);
+        project
+    }
+
+    #[test]
+    fn resolves_reference_forms_against_scope_and_imports() {
+        let project = cross_file_resolution_project();
+        let scope = qname("RoverSystem.Rover");
+
+        // Absolute, in both spellings.
+        for form in ["RoverParts::Chassis", "RoverParts.Chassis"] {
+            assert_eq!(
+                project.resolve_element_name(&qname(form), Some(&scope)),
+                Some(qname("RoverParts.Chassis")),
+                "`{form}` should resolve absolutely"
+            );
+        }
+
+        // Bare name reached through the wildcard import in another file.
+        assert_eq!(
+            project.resolve_element_name(&qname("Chassis"), Some(&scope)),
+            Some(qname("RoverParts.Chassis"))
+        );
+
+        // Sibling in the same package, relative to the scope's owner.
+        assert_eq!(
+            project.resolve_element_name(&qname("Spare"), Some(&scope)),
+            Some(qname("RoverSystem.Spare"))
+        );
+
+        // The container package itself.
+        assert_eq!(
+            project.resolve_element_name(&qname("RoverSystem"), Some(&scope)),
+            Some(qname("RoverSystem"))
+        );
+
+        // Genuinely absent names stay unresolved.
+        assert_eq!(
+            project.resolve_element_name(&qname("NoSuchThing"), Some(&scope)),
+            None
+        );
+    }
+
+    #[test]
+    fn resolves_unique_bare_name_without_a_scope() {
+        let project = cross_file_resolution_project();
+        assert_eq!(
+            project.resolve_element_name(&qname("Chassis"), None),
+            Some(qname("RoverParts.Chassis"))
+        );
     }
 
     fn kir_document(elements: Vec<KirElement>) -> KirDocument {
