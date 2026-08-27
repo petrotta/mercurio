@@ -121,8 +121,7 @@ where
                 .iter()
                 .cloned()
                 .chain(engine.base_facts.iter().cloned());
-            evaluate(facts, &engine.rules)
-                .map(|evaluation| FactIndex::from_evaluation(&evaluation))
+            evaluate(facts, &engine.rules).map(|evaluation| FactIndex::from_evaluation(&evaluation))
         });
         SemanticLegalityBatch {
             service: self,

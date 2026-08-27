@@ -2783,6 +2783,26 @@ impl Usage {
             lines.push(format!("{prefix}{header}"));
             return lines.join("\n");
         }
+        if let Some(rendered) = render_connect_header(self) {
+            header.push_str(&rendered);
+            let body_members = self
+                .members
+                .get(CONNECTION_END_MEMBER_COUNT..)
+                .unwrap_or_default();
+            if body_members.is_empty() {
+                header.push(';');
+                lines.push(format!("{prefix}{header}"));
+                return lines.join("\n");
+            }
+            header.push_str(" {");
+            lines.push(format!("{prefix}{header}"));
+            let body = render_member_and_raw_body(body_members, None, indent + 2);
+            if !body.is_empty() {
+                lines.push(body);
+            }
+            lines.push(format!("{prefix}}}"));
+            return lines.join("\n");
+        }
         if let Some(rendered) = render_relationship_shorthand(self) {
             header.push_str(&rendered);
             lines.push(format!("{prefix}{header}"));
@@ -5166,6 +5186,125 @@ fn render_language_extension_keyword(value: &str) -> String {
     value.trim().trim_start_matches('#').to_string()
 }
 
+/// Renders the head of a binary connector in its compact declaration form —
+/// `connect a to b`, `connection c connect a to b`, `interface i connect a to
+/// b` — instead of the generic `connect { end reference … }` body form. The
+/// caller appends the `;` or the `{ … }` body.
+///
+/// The parser lowers `connect a to b;` into a usage carrying two `end`
+/// reference members marked `end-source` / `end-target`. Re-rendering that
+/// through the generic usage path produced the verbose body form, so any
+/// container re-render — for example the `ReplaceContainer` localized patch a
+/// typed `AddUsage` uses — rewrote connectors the edit never touched. Whenever
+/// the leading members are the implicit end pair the compact form is lossless,
+/// so prefer it; anything richer (a raw body, multiplicity, specializations)
+/// falls through to the generic renderer.
+fn render_connect_header(usage: &Usage) -> Option<String> {
+    if !matches!(
+        usage.keyword.as_str(),
+        "connect" | "connection" | "interface"
+    ) {
+        return None;
+    }
+    if usage.raw_body.is_some()
+        || usage.reference_target.is_some()
+        || usage.multiplicity.is_some()
+        || usage.expression.is_some()
+        || !usage.additional_types.is_empty()
+        || !usage.specializes.is_empty()
+        || !usage.subsets.is_empty()
+        || !usage.redefines.is_empty()
+        || !usage.metadata_properties.is_empty()
+    {
+        return None;
+    }
+    let (source, target) = connection_end_pair(usage)?;
+
+    let mut rendered = String::new();
+    if usage.keyword == "connect" {
+        // The anonymous form carries no name, type or short name; if the model
+        // grew one, the generic renderer is the only lossless option.
+        if !usage.is_implicit_name
+            || usage.ty.is_some()
+            || !render_angle_adornment_prefix(&usage.modifiers).is_empty()
+        {
+            return None;
+        }
+        rendered.push_str("connect ");
+    } else {
+        rendered.push_str(&usage.keyword);
+        rendered.push(' ');
+        rendered.push_str(&render_angle_adornment_prefix(&usage.modifiers));
+        if !usage.is_implicit_name {
+            rendered.push_str(&render_name_segment(&usage.name));
+            rendered.push(' ');
+        }
+        if let Some(ty) = &usage.ty {
+            rendered.push_str(": ");
+            rendered.push_str(&render_qname(ty));
+            rendered.push(' ');
+        }
+        rendered.push_str("connect ");
+    }
+    rendered.push_str(&render_connection_end(source, "source"));
+    rendered.push_str(" to ");
+    rendered.push_str(&render_connection_end(target, "target"));
+    Some(rendered)
+}
+
+/// Number of leading members `render_connect_header` consumes; the rest stay in
+/// the rendered body.
+const CONNECTION_END_MEMBER_COUNT: usize = 2;
+
+/// The two implicit connector ends, in `(source, target)` order, when they lead
+/// the usage body. The parser always emits them first, ahead of any members
+/// declared in an explicit `{ … }` block.
+fn connection_end_pair(usage: &Usage) -> Option<(&Usage, &Usage)> {
+    let [Declaration::Usage(source), Declaration::Usage(target), ..] = usage.members.as_slice()
+    else {
+        return None;
+    };
+    (is_plain_connection_end(source, "end-source") && is_plain_connection_end(target, "end-target"))
+        .then_some((source, target))
+}
+
+fn is_plain_connection_end(end: &Usage, marker: &str) -> bool {
+    end.keyword == "reference"
+        && end.reference_target.is_some()
+        && end.ty.is_none()
+        && end.multiplicity.is_none()
+        && end.expression.is_none()
+        && end.additional_types.is_empty()
+        && end.specializes.is_empty()
+        && end.subsets.is_empty()
+        && end.redefines.is_empty()
+        && end.metadata_properties.is_empty()
+        && end.members.is_empty()
+        && end.raw_body.is_none()
+        && end.docs.is_empty()
+        && end.comments.is_empty()
+        && end.modifiers.iter().any(|modifier| modifier == marker)
+        && end
+            .modifiers
+            .iter()
+            .all(|modifier| modifier == "end" || modifier == marker)
+}
+
+/// `a` for an end left at its implicit `source` / `target` name, `src ::> a`
+/// for an explicitly named one.
+fn render_connection_end(end: &Usage, implicit_name: &str) -> String {
+    let target = end
+        .reference_target
+        .as_ref()
+        .map(QualifiedName::as_dot_string)
+        .unwrap_or_default();
+    if end.is_implicit_name || end.name == implicit_name {
+        target
+    } else {
+        format!("{} ::> {target}", render_name_segment(&end.name))
+    }
+}
+
 fn render_relationship_shorthand(usage: &Usage) -> Option<String> {
     let source = relationship_source_from_modifiers(&usage.modifiers)?;
     let target = usage.reference_target.as_ref()?;
@@ -5212,7 +5351,15 @@ fn render_transition_shorthand(usage: &Usage) -> Option<String> {
         return Some(rendered);
     }
     let mut rendered = String::from("transition");
-    if !usage.is_implicit_name && usage.name != "transition" {
+    // `first`/`then`/`from` open the shorthand's source clause, so a declaration
+    // name colliding with one of them can never be emitted in the name slot: the
+    // renderer would follow it with the marker it emits itself, and the result
+    // (`transition first first S then T;`) no longer parses. Such a name only
+    // arises when a producer mistook the marker for the name, so drop it.
+    if !usage.is_implicit_name
+        && usage.name != "transition"
+        && !matches!(usage.name.as_str(), "first" | "then" | "from")
+    {
         rendered.push(' ');
         rendered.push_str(&render_name_segment(&usage.name));
     }
@@ -6455,8 +6602,8 @@ fn pascal_case(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        AttributeWritePolicy, ContainerSelector, Mutation, QualifiedName, SemanticEdit,
-        create_empty_model, load_authoring_project_from_kir,
+        AttributeWritePolicy, ContainerSelector, Declaration, Mutation, QualifiedName,
+        SemanticEdit, Usage, create_empty_model, load_authoring_project_from_kir,
     };
     use mercurio_kir::{KIR_SCHEMA_VERSION, KirDocument, KirElement};
     use serde_json::{Value, json};
@@ -7610,6 +7757,57 @@ mod tests {
     }
 
     #[test]
+    fn unnamed_transition_shorthand_renders_a_single_source_marker() {
+        // Regression (DA-1 fidelity): `transition first idle then driving;` is
+        // the *unnamed* shorthand — `first` opens the source clause and is not
+        // the transition's name. Rendering it as both a name and a marker
+        // produced `transition first first idle then driving;`, which does not
+        // parse.
+        let mut usage = super::Usage {
+            keyword: "transition".to_string(),
+            name: "transition".to_string(),
+            is_implicit_name: true,
+            ty: None,
+            reference_target: None,
+            metadata_properties: BTreeMap::new(),
+            multiplicity: None,
+            expression: None,
+            additional_types: Vec::new(),
+            specializes: Vec::new(),
+            subsets: Vec::new(),
+            redefines: Vec::new(),
+            members: Vec::new(),
+            raw_body: None,
+            comments: Vec::new(),
+            docs: Vec::new(),
+            modifiers: vec![
+                "transition_source=idle".to_string(),
+                "transition_target=driving".to_string(),
+            ],
+        };
+        assert_eq!(
+            super::render_transition_shorthand(&usage),
+            Some("transition first idle then driving;".to_string())
+        );
+
+        // Defense in depth: even if a producer mistakes the `first` marker for
+        // the declaration name, the printer must not emit it twice.
+        usage.name = "first".to_string();
+        usage.is_implicit_name = false;
+        assert_eq!(
+            super::render_transition_shorthand(&usage),
+            Some("transition first idle then driving;".to_string())
+        );
+
+        // A real name still survives.
+        usage.name = "go".to_string();
+        assert_eq!(
+            super::render_transition_shorthand(&usage),
+            Some("transition go first idle then driving;".to_string())
+        );
+    }
+
+    #[test]
     fn quoted_names_render_for_packages_definitions_and_usages() {
         let mut project = create_empty_model();
         let package_result = project
@@ -8277,5 +8475,104 @@ mod tests {
             "// keep me\npackage Demo {\n    // vehicle def\n    doc /* Updated. */\n    part def Vehicle;\n}\n",
             "the doc edit must swap the doc line without touching anything else"
         );
+    }
+    fn bare_usage(keyword: &str, name: &str) -> Usage {
+        Usage {
+            keyword: keyword.to_string(),
+            name: name.to_string(),
+            is_implicit_name: false,
+            ty: None,
+            reference_target: None,
+            metadata_properties: BTreeMap::new(),
+            multiplicity: None,
+            expression: None,
+            additional_types: Vec::new(),
+            specializes: Vec::new(),
+            subsets: Vec::new(),
+            redefines: Vec::new(),
+            members: Vec::new(),
+            raw_body: None,
+            comments: Vec::new(),
+            docs: Vec::new(),
+            modifiers: Vec::new(),
+        }
+    }
+
+    /// The shape a SysML front end lowers `connect <source> to <target>;` into:
+    /// two `end` reference members tagged `end-source` / `end-target`.
+    fn connection_end(name: &str, marker: &str, target: &str) -> Declaration {
+        let mut end = bare_usage("reference", name);
+        end.reference_target = Some(qname(target));
+        end.modifiers = vec!["end".to_string(), marker.to_string()];
+        Declaration::Usage(end)
+    }
+
+    fn binary_connector(keyword: &str) -> Usage {
+        let mut usage = bare_usage(keyword, keyword);
+        usage.is_implicit_name = true;
+        usage.members = vec![
+            connection_end("source", "end-source", "a"),
+            connection_end("target", "end-target", "b"),
+        ];
+        usage
+    }
+
+    #[test]
+    fn binary_connector_renders_in_compact_form() {
+        assert_eq!(binary_connector("connect").render(0), "connect a to b;");
+    }
+
+    #[test]
+    fn named_connection_renders_in_compact_form() {
+        let mut usage = binary_connector("connection");
+        usage.name = "c1".to_string();
+        usage.is_implicit_name = false;
+        assert_eq!(usage.render(0), "connection c1 connect a to b;");
+
+        usage.ty = Some(qname("Conn"));
+        assert_eq!(usage.render(0), "connection c1 : Conn connect a to b;");
+    }
+
+    #[test]
+    fn explicitly_named_connector_ends_keep_their_names() {
+        let mut usage = binary_connector("interface");
+        usage.name = "i1".to_string();
+        usage.is_implicit_name = false;
+        usage.members = vec![
+            connection_end("src", "end-source", "a"),
+            connection_end("dst", "end-target", "b"),
+        ];
+        assert_eq!(
+            usage.render(0),
+            "interface i1 connect src ::> a to dst ::> b;"
+        );
+    }
+
+    #[test]
+    fn connector_with_extra_members_keeps_the_compact_head_and_a_body() {
+        let mut usage = binary_connector("connect");
+        usage
+            .members
+            .push(Declaration::Usage(bare_usage("attribute", "q")));
+        assert_eq!(
+            usage.render(0),
+            "connect a to b {
+  attribute q;
+}"
+        );
+    }
+
+    /// A connector the compact form cannot express without dropping something
+    /// must still fall back to the generic end-member rendering.
+    #[test]
+    fn connector_that_outgrew_the_compact_form_falls_back() {
+        let mut usage = binary_connector("connect");
+        usage.specializes = vec![qname("Base")];
+        let rendered = usage.render(0);
+        assert!(
+            rendered.contains("end reference"),
+            "expected the generic rendering, got:\n{rendered}"
+        );
+        assert!(rendered.contains("specializes Base"));
     }
 }

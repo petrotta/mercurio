@@ -212,13 +212,14 @@ where
                 diff_for_operation(operation, Some(&result)),
             );
             merged.merge(result);
-            let property_result = apply_add_element_properties(&mut project, operation).map_err(
-                |err| FeasibilityIssue {
-                    kind: FeasibilityIssueKind::ValidationFailure,
-                    operation_index: Some(index),
-                    message: err.to_string(),
-                },
-            )?;
+            let property_result =
+                apply_add_element_properties(&mut project, operation).map_err(|err| {
+                    FeasibilityIssue {
+                        kind: FeasibilityIssueKind::ValidationFailure,
+                        operation_index: Some(index),
+                        message: err.to_string(),
+                    }
+                })?;
             merged.merge(property_result);
         }
 
@@ -713,11 +714,7 @@ where
                         blocking_reasons,
                     );
                     let target_kind = self
-                        .semantic_declaration_kind_label_in_scope(
-                            project,
-                            target,
-                            Some(container),
-                        )
+                        .semantic_declaration_kind_label_in_scope(project, target, Some(container))
                         .unwrap_or_else(|| "specialization".to_string());
                     self.apply_legality_report(
                         self.legality
@@ -1147,7 +1144,6 @@ fn exists_in_scope(
 ) -> bool {
     resolve_in_scope(project, element, scope).is_some()
 }
-
 
 fn container_selector_for(project: &AuthoringProject, element: &ElementRef) -> ContainerSelector {
     let qualified_name = element.as_qualified_name();

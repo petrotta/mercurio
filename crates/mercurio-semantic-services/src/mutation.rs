@@ -10,10 +10,10 @@ use crate::semantic_profile::{
 use crate::variant::{
     SemanticVariantCapabilityContext, default_semantic_variant_capability_context,
 };
+pub use mercurio_authoring::authoring::WriteBackMode;
 use mercurio_authoring::authoring::{
     AuthoringModule, AuthoringProject, Declaration, MutationResult, QualifiedName,
 };
-pub use mercurio_authoring::authoring::WriteBackMode;
 use mercurio_kir::{
     KIR_PROP_NAME, KIR_PROP_OWNER, KIR_PROP_SPECIALIZES, KIR_PROP_TYPE, KirDocument, KirElement,
 };

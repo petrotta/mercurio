@@ -408,7 +408,13 @@ impl<'a> Lexer<'a> {
                     let start_col = self.col;
                     let own_line = start_line > self.last_content_line;
                     let text = self.consume_line_prefixed_block_comment()?;
-                    self.push_comment_trivia(text, CommentKind::Block, start_line, start_col, own_line);
+                    self.push_comment_trivia(
+                        text,
+                        CommentKind::Block,
+                        start_line,
+                        start_col,
+                        own_line,
+                    );
                 }
                 Some('/') if self.peek_next_char() == Some('/') => {
                     let start_line = self.line;
@@ -429,7 +435,13 @@ impl<'a> Lexer<'a> {
                     let text = self.input[text_start..text_end]
                         .trim_end_matches('\r')
                         .to_string();
-                    self.push_comment_trivia(text, CommentKind::Line, start_line, start_col, own_line);
+                    self.push_comment_trivia(
+                        text,
+                        CommentKind::Line,
+                        start_line,
+                        start_col,
+                        own_line,
+                    );
                 }
                 Some('/') if self.peek_next_char() == Some('*') && self.comment_doc_candidate => {
                     return Ok(());
@@ -439,7 +451,13 @@ impl<'a> Lexer<'a> {
                     let start_col = self.col;
                     let own_line = start_line > self.last_content_line;
                     let text = self.consume_block_comment()?;
-                    self.push_comment_trivia(text, CommentKind::Block, start_line, start_col, own_line);
+                    self.push_comment_trivia(
+                        text,
+                        CommentKind::Block,
+                        start_line,
+                        start_col,
+                        own_line,
+                    );
                 }
                 _ => return Ok(()),
             }
@@ -844,8 +862,10 @@ mod tests {
 
     #[test]
     fn collects_leading_comment_trivia_on_the_next_token() {
-        let tokens = lex("// header note\npackage Demo {\n    /* engine block */\n    part def Engine;\n}\n")
-            .unwrap();
+        let tokens = lex(
+            "// header note\npackage Demo {\n    /* engine block */\n    part def Engine;\n}\n",
+        )
+        .unwrap();
 
         let package = tokens
             .iter()
@@ -886,9 +906,7 @@ mod tests {
             lex("package Demo { doc /* docs */ comment /* about */ part def Engine; }").unwrap();
 
         assert!(
-            tokens
-                .iter()
-                .all(|token| token.leading_trivia.is_empty()),
+            tokens.iter().all(|token| token.leading_trivia.is_empty()),
             "doc and comment-usage bodies must not be captured as trivia"
         );
         assert!(

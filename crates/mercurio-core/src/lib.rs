@@ -314,6 +314,11 @@ pub use ir::{
     KirFieldKind, KirFieldRegistry, KirFieldSpec, REPRESENTATIVE_KIR_JSON, Severity,
     load_model_stack, load_model_stack_with_registry,
 };
+pub use kir_canonical::{
+    CanonicalizedKir, KIR_EQUIVALENCE_REPORT_SCHEMA_VERSION, KirEquivalenceReport,
+    canonicalize_kir_document, kir_documents_equivalent, kir_equivalence_diff,
+    kir_equivalence_report, semantic_diff_is_empty,
+};
 pub use language::{
     BaselineLibrary, CURRENT_DEFAULT_PROFILE_ID, Concept, LanguageId, LanguageProfile,
     LanguageProfileError, LibraryContext, MetamodelConceptRegistry, default_language_profile,
@@ -419,11 +424,6 @@ pub use runtime::{
     ExecutionContext, LayeredRuntime, LayeredRuntimeAssembly, QueryResult, Runtime,
     RuntimeArtifact, RuntimeBase, RuntimeError, RuntimeOverlay, RuntimeProfile,
     RuntimeProfileTimings,
-};
-pub use kir_canonical::{
-    CanonicalizedKir, KIR_EQUIVALENCE_REPORT_SCHEMA_VERSION, KirEquivalenceReport,
-    canonicalize_kir_document, kir_documents_equivalent, kir_equivalence_diff,
-    kir_equivalence_report, semantic_diff_is_empty,
 };
 pub use semantic_compare::{
     SEMANTIC_MODEL_COMPARE_REPORT_SCHEMA_VERSION, SemanticCompareError, SemanticCompareOptions,

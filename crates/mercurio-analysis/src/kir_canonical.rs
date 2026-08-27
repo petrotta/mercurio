@@ -107,10 +107,9 @@ pub fn canonicalize_kir_document(document: &KirDocument) -> CanonicalizedKir {
                 .and_then(|base| canonical.get(base.len() + 1..))
                 .map(ToOwned::to_owned);
             element.id = canonical.clone();
-            if let (Some(suffix), Some(Value::String(qualified_name))) = (
-                suffix,
-                element.properties.get_mut("qualified_name"),
-            ) {
+            if let (Some(suffix), Some(Value::String(qualified_name))) =
+                (suffix, element.properties.get_mut("qualified_name"))
+            {
                 if let Some(base) = strip_positional_tail(qualified_name) {
                     *qualified_name = format!("{base}.{suffix}");
                 }
@@ -323,20 +322,30 @@ fn owner_reference(element: &KirElement) -> Option<&str> {
 /// usages, which the succession element itself does not list). References to
 /// other position-derived elements contribute *their* content keys, so the
 /// hash never observes line/column numbers.
-fn content_key(id: &str, context: &mut ContentKeyContext<'_>, in_progress: &mut BTreeSet<String>) -> String {
+fn content_key(
+    id: &str,
+    context: &mut ContentKeyContext<'_>,
+    in_progress: &mut BTreeSet<String>,
+) -> String {
     if let Some(key) = context.memo.get(id) {
         return key.clone();
     }
     let Some(element) = context.by_id.get(id).copied() else {
         // Dangling reference to an element outside this document: fall back to
         // the position-stripped id, which is identical on both sides.
-        return format!("ext:{}", positional_id_base(id).unwrap_or_else(|| id.to_string()));
+        return format!(
+            "ext:{}",
+            positional_id_base(id).unwrap_or_else(|| id.to_string())
+        );
     };
     if !in_progress.insert(id.to_string()) {
         // Reference cycle between position-derived elements: fall back to the
         // stripped base so the computation stays deterministic. Such keys are
         // not memoized (see below).
-        return format!("cycle:{}", positional_id_base(id).unwrap_or_else(|| id.to_string()));
+        return format!(
+            "cycle:{}",
+            positional_id_base(id).unwrap_or_else(|| id.to_string())
+        );
     }
 
     let mut properties = serde_json::Map::new();
@@ -600,7 +609,10 @@ mod tests {
                 "succession-as.Demo.Drive.",
             ),
             ("comment.Demo.comment.3.5", "comment.Demo.comment"),
-            ("connection.Demo.Connection.11", "connection.Demo.Connection"),
+            (
+                "connection.Demo.Connection.11",
+                "connection.Demo.Connection",
+            ),
             (
                 "reference.Demo.Connection.source.11",
                 "reference.Demo.Connection.source",
@@ -857,10 +869,7 @@ mod tests {
 
         let report = kir_equivalence_report(&left, &right);
         assert!(report.equivalent);
-        assert_eq!(
-            report.schema_version,
-            KIR_EQUIVALENCE_REPORT_SCHEMA_VERSION
-        );
+        assert_eq!(report.schema_version, KIR_EQUIVALENCE_REPORT_SCHEMA_VERSION);
         assert_eq!(report.left_id_map.len(), 3);
         assert_eq!(report.right_id_map.len(), 3);
 
