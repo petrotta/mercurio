@@ -105,14 +105,35 @@ pub enum BinaryOp {
     Or,
 }
 
+/// A namespace query: `import`, or its view-scoped twin `expose`.
+///
+/// The two are parallel branches of the same metamodel shape —
+/// `SysML::MembershipImport`/`NamespaceImport` alongside
+/// `SysML::MembershipExpose`/`NamespaceExpose` — and share one syntax, so they
+/// share one node here (save-as-view SV-1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportDecl {
     pub path: QualifiedName,
+    /// `true` for `expose`, `false` for `import`. Both carry the same path
+    /// syntax; only the metaclass and the visibility semantics differ.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_expose: bool,
+    /// Raw text of a filter condition, e.g. `@Safety` from
+    /// `import vehicle::**[@Safety]`. Held verbatim rather than parsed into an
+    /// expression: the parser's job is to stop losing it, and evaluating it
+    /// against an element's metadata features belongs to the resolver
+    /// (save-as-view SV-2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<CommentNote>,
     pub docs: Vec<String>,
     pub modifiers: Vec<String>,
     pub span: SourceSpan,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
