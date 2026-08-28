@@ -38,8 +38,9 @@ use super::expose::{
     inherited_filter_conditions, qualified_name, scope_base, scope_is_wildcard,
 };
 use super::{
-    DiagramKindDto, DiagramScopeDto, DiagramSpecDto, ModelViewSpecDto, TableKindDto,
-    TableRowTypeDto, TableScopeDto, TableSpecDto, ViewDocumentDto, VIEW_SPEC_VERSION,
+    DiagramKindDto, DiagramScopeDto, DiagramSpecDto, ModelViewSpecDto, TableColumnSpecDto,
+    TableKindDto, TableRowTypeDto, TableScopeDto, TableSpecDto, VIEW_SPEC_VERSION,
+    ViewDocumentDto,
 };
 
 /// KIR kind of an `expose` member.
@@ -105,6 +106,23 @@ pub struct ExposeDraft {
     pub predicate: Option<String>,
 }
 
+/// A `rendering` a saved view needs alongside it.
+///
+/// Columns are not properties of a view — they belong to its *rendering*, as
+/// `columnView` subsets. So a table view with columns cannot be written as one
+/// element: it needs a rendering subtyping `asElementTable` that declares them,
+/// and the view renders with that. Without this the columns are silently
+/// dropped on save, which is the sort of loss the whole plan exists to stop.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderingDraft {
+    pub declared_name: String,
+    /// The standard rendering it subtypes, e.g. `asElementTable`.
+    pub subtypes: String,
+    /// Column feature names, in order. `columnView` is `ordered`, so this
+    /// sequence is model content rather than presentation.
+    pub columns: Vec<String>,
+}
+
 /// Everything needed to write a `view` usage into a model.
 ///
 /// Deliberately *not* SysML text: V-6.5 applies this through the same
@@ -120,6 +138,9 @@ pub struct ViewUsageDraft {
     pub filters: Vec<String>,
     /// The rendering to `render`, e.g. `asTreeDiagram`.
     pub rendering: Option<String>,
+    /// A rendering to declare beside the view, when the standard ones cannot
+    /// carry what the spec holds — today, columns.
+    pub rendering_def: Option<RenderingDraft>,
 }
 
 impl ViewUsageDraft {
@@ -128,7 +149,22 @@ impl ViewUsageDraft {
     /// Names are quoted whenever they are not plain identifiers, which is the
     /// common case for a saved view: `'vehicle structure view'` has spaces.
     pub fn to_sysml(&self) -> String {
-        let mut out = format!("view {} {{\n", quote_name(&self.declared_name));
+        let mut out = String::new();
+        if let Some(rendering) = &self.rendering_def {
+            out.push_str(&format!(
+                "rendering {} :> {} {{\n",
+                quote_name(&rendering.declared_name),
+                rendering.subtypes
+            ));
+            for column in &rendering.columns {
+                out.push_str(&format!(
+                    "    view {} :> columnView {{\n        render asTextualNotation;\n    }}\n",
+                    quote_name(column)
+                ));
+            }
+            out.push_str("}\n\n");
+        }
+        out.push_str(&format!("view {} {{\n", quote_name(&self.declared_name)));
         if let Some(documentation) = &self.documentation {
             out.push_str(&format!("    doc /* {documentation} */\n"));
         }
@@ -149,6 +185,27 @@ impl ViewUsageDraft {
         out.push_str("}\n");
         out
     }
+}
+
+/// A plain-identifier name for a generated rendering, from the view's title.
+///
+/// `component table` becomes `asComponentTableColumns`, following the library's
+/// own `asElementTable` / `asTreeDiagram` convention. It has to be a plain
+/// identifier rather than a quoted name: `render 'a b c';` does not parse the
+/// quoted form, and a generated name is never read back — reading follows the
+/// `render` member to whatever rendering it names — so only stability and
+/// distinctness matter.
+fn rendering_name_for(title: &str) -> String {
+    let mut out = String::from("as");
+    for word in title.split(|c: char| !c.is_alphanumeric()) {
+        let mut characters = word.chars();
+        if let Some(first) = characters.next() {
+            out.push(first.to_ascii_uppercase());
+            out.push_str(characters.as_str());
+        }
+    }
+    out.push_str("Columns");
+    out
 }
 
 fn quote_name(name: &str) -> String {
@@ -186,6 +243,12 @@ pub fn view_spec_from_usage(graph: &Graph, view: NodeId) -> Result<ViewDocumentD
             "the view declares no `render`, so its notation is unknown",
         )
     })?;
+    // A user rendering subtypes a standard one -- `rendering asNameAndDoc :>
+    // asElementTable` -- and that inheritance is what says how to render it. So
+    // resolve through it rather than refusing every non-standard name: the
+    // column *structure* is standard content even when the rendering is the
+    // author's own.
+    let (rendering, columns) = resolve_rendering(graph, &rendering);
     let standard = STANDARD_RENDERINGS
         .iter()
         .find(|(name, _)| *name == rendering)
@@ -194,8 +257,8 @@ pub fn view_spec_from_usage(graph: &Graph, view: NodeId) -> Result<ViewDocumentD
             NotReifiable::new(
                 "kind",
                 format!(
-                    "`{rendering}` is not one of the four standard renderings; a user \
-                     `rendering def` is tier 2 and needs the #Mercurio profile (V-6.4)"
+                    "`{rendering}` does not resolve to a standard rendering; one that \
+                     subtypes none of them is tier 2 and needs the #Mercurio profile (V-6.4)"
                 ),
             )
         })?;
@@ -250,7 +313,7 @@ pub fn view_spec_from_usage(graph: &Graph, view: NodeId) -> Result<ViewDocumentD
                 scope,
                 row_type: filters.iter().find_map(|condition| metaclass_row_type(condition)),
                 query: Default::default(),
-                columns: Vec::new(),
+                columns,
                 show_affordances: false,
             }))
         }
@@ -384,6 +447,97 @@ fn rendering_name(graph: &Graph, view: NodeId) -> Option<String> {
         })
 }
 
+/// Follow a rendering name to the standard rendering it ultimately subtypes,
+/// collecting the columns it declares on the way.
+///
+/// `asTreeDiagram` resolves to itself. `asNameAndDoc :> asElementTable`
+/// resolves to `asElementTable`, and its `view … :> columnView` members are the
+/// table's columns.
+fn resolve_rendering(graph: &Graph, rendering: &str) -> (String, Vec<TableColumnSpecDto>) {
+    if STANDARD_RENDERINGS.iter().any(|(name, _)| name == &rendering) {
+        return (rendering.to_string(), Vec::new());
+    }
+
+    let Some(node) = graph.elements().iter().find(|element| {
+        let properties = element.properties.to_btree_map();
+        properties
+            .get("metatype")
+            .and_then(|value| value.as_str())
+            .is_some_and(|metatype| last_segment(metatype) == "RenderingUsage")
+            && properties.get("declared_name").and_then(|value| value.as_str()) == Some(rendering)
+    }) else {
+        return (rendering.to_string(), Vec::new());
+    };
+
+    let columns = rendering_columns(graph, node.id);
+    let supertype = node
+        .properties
+        .to_btree_map()
+        .get("specializes")
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|value| value.as_str())
+        .map(|value| last_segment(value).to_string())
+        .find(|name| STANDARD_RENDERINGS.iter().any(|(standard, _)| standard == name));
+
+    (supertype.unwrap_or_else(|| rendering.to_string()), columns)
+}
+
+/// The `columnView` subsets a rendering declares, in the order they were
+/// written -- `asElementTable::columnView` is `ordered`, so column order is
+/// content rather than presentation.
+///
+/// Multiple columns are **subsets** of `columnView[0..*]`, not redefinitions of
+/// it: `:>` adds instances to a many-valued feature while `:>>` replaces it. The
+/// pilot only ever writes one column (`view :>> columnView[1]`, where `[1]` is
+/// the redefining feature's multiplicity and not an index), so two `:>>` of the
+/// same feature are two definitions of one feature -- which the compiler rightly
+/// rejects as a duplicate id rather than reading as two columns.
+///
+/// `key` and `label` come from the column feature's own declared name, which is
+/// real model content and therefore tier 1. `path` -- *which* attribute of the
+/// row element a column shows -- has no standard encoding at all: the pilot's
+/// column view carries only a `render`. It is tier 2, arrives with the
+/// #Mercurio profile in V-6.4, and stays `None` here rather than being invented.
+fn rendering_columns(graph: &Graph, rendering: NodeId) -> Vec<TableColumnSpecDto> {
+    let mut columns: Vec<(u64, u64, TableColumnSpecDto)> = graph
+        .incoming(rendering, OWNER)
+        .map(|edge| edge.source)
+        .filter_map(|node| graph.element(node))
+        .filter(|element| {
+            element
+                .properties
+                .to_btree_map()
+                .get("specializes")
+                .and_then(|value| value.as_array())
+                .is_some_and(|specializes| {
+                    specializes
+                        .iter()
+                        .filter_map(|value| value.as_str())
+                        .any(|value| last_segment(value) == "columnView")
+                })
+        })
+        .filter_map(|element| {
+            let properties = element.properties.to_btree_map();
+            let name = properties.get("declared_name")?.as_str()?.to_string();
+            let (line, column) = source_position(&properties);
+            Some((
+                line,
+                column,
+                TableColumnSpecDto {
+                    key: name.clone(),
+                    label: name,
+                    path: None,
+                    expression: None,
+                },
+            ))
+        })
+        .collect();
+    columns.sort_by_key(|(line, column, _)| (*line, *column));
+    columns.into_iter().map(|(_, _, column)| column).collect()
+}
+
 fn owned_documentation(graph: &Graph, view: NodeId) -> Option<String> {
     graph
         .incoming(view, OWNER)
@@ -468,6 +622,7 @@ fn diagram_draft(spec: &DiagramSpecDto) -> Result<ViewUsageDraft, NotReifiable> 
         exposes,
         filters: Vec::new(),
         rendering: Some(rendering),
+        rendering_def: None,
     })
 }
 
@@ -499,6 +654,20 @@ fn table_draft(spec: &TableSpecDto) -> Result<ViewUsageDraft, NotReifiable> {
             .collect(),
     };
 
+    // Columns live on the *rendering*, not the view, so a table with columns
+    // needs one declared beside it. The generated name is derived from the
+    // view's title and never read back -- reading follows the `render` member to
+    // whatever rendering it names -- so it only has to be stable and distinct.
+    let rendering_def = (!spec.columns.is_empty()).then(|| RenderingDraft {
+        declared_name: rendering_name_for(&spec.title),
+        subtypes: "asElementTable".to_string(),
+        columns: spec.columns.iter().map(|column| column.key.clone()).collect(),
+    });
+    let rendering = rendering_def
+        .as_ref()
+        .map(|rendering| rendering.declared_name.clone())
+        .unwrap_or_else(|| "asElementTable".to_string());
+
     Ok(ViewUsageDraft {
         declared_name: spec.title.clone(),
         documentation: spec.description.clone(),
@@ -508,7 +677,8 @@ fn table_draft(spec: &TableSpecDto) -> Result<ViewUsageDraft, NotReifiable> {
             .iter()
             .map(|row_type| format!("@SysML::{}", row_type.type_name))
             .collect(),
-        rendering: Some("asElementTable".to_string()),
+        rendering: Some(rendering),
+        rendering_def,
     })
 }
 
@@ -543,6 +713,7 @@ fn model_draft(spec: &ModelViewSpecDto) -> Result<ViewUsageDraft, NotReifiable> 
             .collect(),
         filters: Vec::new(),
         rendering: Some("asTreeDiagram".to_string()),
+        rendering_def: None,
     })
 }
 
