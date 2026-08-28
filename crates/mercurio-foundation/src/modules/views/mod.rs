@@ -134,6 +134,45 @@ impl Default for DiagramDirectionDto {
     }
 }
 
+/// What a diagram view is scoped to.
+///
+/// `Traversal` is the historical behaviour and stays the default: the view
+/// re-runs its query, so it follows the model as the model changes.
+///
+/// `ExplicitElements` records a fixed set instead. A saved exploration needs
+/// this: the user pruned the graph by hand, and re-running the traversal would
+/// hand back a superset of what they curated. It is also what a materialized
+/// save produces -- see `materialize_diagram_scope` (save-as-view V-6.3).
+///
+/// Tables have had `TableScopeDto::ExplicitElements` since before this; the
+/// diagram family had no equivalent, which is why a materialized diagram view
+/// had nowhere to be read back into.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DiagramScopeDto {
+    #[default]
+    Traversal,
+    ExplicitElements {
+        elements: Vec<String>,
+    },
+}
+
+impl DiagramScopeDto {
+    /// Serialization skips the default, so every spec written before this field
+    /// existed stays byte-identical.
+    pub fn is_traversal(&self) -> bool {
+        matches!(self, Self::Traversal)
+    }
+
+    /// The curated set, or `None` when the view still traverses.
+    pub fn explicit_elements(&self) -> Option<&[String]> {
+        match self {
+            Self::Traversal => None,
+            Self::ExplicitElements { elements } => Some(elements),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DiagramQueryOptionsDto {
     #[serde(default = "default_diagram_relations")]
@@ -150,6 +189,8 @@ pub struct DiagramQueryOptionsDto {
     pub max_nodes: usize,
     #[serde(default = "default_max_edges")]
     pub max_edges: usize,
+    #[serde(default, skip_serializing_if = "DiagramScopeDto::is_traversal")]
+    pub scope: DiagramScopeDto,
 }
 
 impl Default for DiagramQueryOptionsDto {
@@ -162,6 +203,7 @@ impl Default for DiagramQueryOptionsDto {
             include_user_model: true,
             max_nodes: default_max_nodes(),
             max_edges: default_max_edges(),
+            scope: DiagramScopeDto::Traversal,
         }
     }
 }
@@ -1108,6 +1150,7 @@ fn catalog_query(relations: Vec<String>) -> DiagramQueryOptionsDto {
         include_user_model: true,
         max_nodes: default_max_nodes(),
         max_edges: default_max_edges(),
+        ..Default::default()
     }
 }
 
@@ -5065,6 +5108,57 @@ fn svg_escape(value: &str) -> String {
 }
 
 #[cfg(test)]
+mod diagram_scope_tests {
+    use super::*;
+
+    /// The whole point of `skip_serializing_if`: adding this field must not
+    /// change one byte of any spec written before it existed. Every stored
+    /// `.view.json`, every cached render key, every fixture depends on that.
+    #[test]
+    fn a_traversal_scope_is_absent_from_the_serialized_form() {
+        let json = serde_json::to_string(&DiagramQueryOptionsDto::default())
+            .expect("query options serialize");
+        assert!(
+            !json.contains("scope"),
+            "the default scope must not be written; got {json}"
+        );
+    }
+
+    #[test]
+    fn an_explicit_scope_round_trips_through_json() {
+        let options = DiagramQueryOptionsDto {
+            scope: DiagramScopeDto::ExplicitElements {
+                elements: vec!["A".to_string(), "B".to_string()],
+            },
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&options).expect("query options serialize");
+        assert!(json.contains(r#""kind":"explicit_elements""#), "got {json}");
+
+        let parsed: DiagramQueryOptionsDto =
+            serde_json::from_str(&json).expect("query options parse");
+        assert_eq!(parsed, options);
+        assert_eq!(
+            parsed.scope.explicit_elements(),
+            Some(["A".to_string(), "B".to_string()].as_slice())
+        );
+    }
+
+    /// A spec written before the field existed still parses, and reads as a
+    /// traversal.
+    #[test]
+    fn a_spec_without_a_scope_parses_as_traversal() {
+        let parsed: DiagramQueryOptionsDto = serde_json::from_str(
+            r#"{"relations":["specializes"],"direction":"children","depth":3,
+                "include_libraries":true,"include_user_model":true,
+                "max_nodes":350,"max_edges":900}"#,
+        )
+        .expect("a pre-scope spec parses");
+        assert!(parsed.scope.is_traversal());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::kir::{KirDocument, KirElement};
@@ -5415,6 +5509,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             layout: DiagramLayoutOptionsDto::default(),
             style: DiagramStyleOptionsDto::default(),
@@ -5481,6 +5576,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             layout: DiagramLayoutOptionsDto::default(),
             style: DiagramStyleOptionsDto::default(),
@@ -5533,6 +5629,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             layout: DiagramLayoutOptionsDto::default(),
             style: DiagramStyleOptionsDto::default(),
@@ -5736,6 +5833,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             layout: DiagramLayoutOptionsDto::default(),
             style: DiagramStyleOptionsDto::default(),
@@ -5782,6 +5880,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             layout: DiagramLayoutOptionsDto::default(),
             style: DiagramStyleOptionsDto::default(),
@@ -5988,6 +6087,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             layout: DiagramLayoutOptionsDto::default(),
             style: DiagramStyleOptionsDto::default(),
@@ -6043,6 +6143,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             layout: DiagramLayoutOptionsDto::default(),
             style: DiagramStyleOptionsDto::default(),
@@ -6151,6 +6252,7 @@ mod tests {
                     include_user_model: true,
                     max_nodes: 350,
                     max_edges: 900,
+                    ..Default::default()
                 },
                 layout: DiagramLayoutOptionsDto::default(),
                 style: DiagramStyleOptionsDto::default(),
@@ -6185,6 +6287,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             columns: Vec::new(),
             show_affordances: false,
@@ -6508,6 +6611,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             columns: vec![
                 TableColumnSpecDto {
@@ -6558,6 +6662,7 @@ mod tests {
                 include_user_model: true,
                 max_nodes: 350,
                 max_edges: 900,
+                ..Default::default()
             },
             columns: vec![
                 TableColumnSpecDto {
