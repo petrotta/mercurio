@@ -154,10 +154,16 @@ fn owned_members(graph: &Graph, owner: NodeId, kind: &str) -> Vec<NodeId> {
 /// Every filter condition that applies to `view`: its own, plus those of every
 /// view it is typed by or specializes, transitively.
 ///
+/// This is the *effective* set, which is what reading a view back needs — a
+/// usage typed by `view def X { filter @SysML::PartUsage; }` really is a table
+/// of part usages, even though the condition is not written on the usage.
+/// Writing a view back out derives its filters from the spec's own `row_type`
+/// instead, so a save never copies a definition's filters onto the usage.
+///
 /// Returned in a stable order (breadth-first from the view, each level sorted
 /// by element id) and de-duplicated, so an inherited condition repeated on a
 /// subtype is not applied twice.
-fn inherited_filter_conditions(graph: &Graph, view: NodeId) -> Vec<String> {
+pub fn inherited_filter_conditions(graph: &Graph, view: NodeId) -> Vec<String> {
     let mut conditions = Vec::new();
     let mut seen_conditions = BTreeSet::new();
     let mut seen_views = BTreeSet::new();
@@ -271,6 +277,50 @@ fn resolve_scope(graph: &Graph, view: NodeId, path: &str) -> Vec<NodeId> {
     }
 
     current.into_iter().collect()
+}
+
+/// The element a scope path is anchored at — the non-wildcard head of
+/// `vehicle::**`, or the whole path when there is no wildcard.
+///
+/// The reverse mapping (V-6.3) needs this: a saved view records its scope as
+/// `expose <root>::**`, and reading it back into `DiagramSpecDto.root` means
+/// binding that path the same way resolution does, from the same place.
+pub fn scope_base(graph: &Graph, view: NodeId, path: &str) -> Option<NodeId> {
+    let segments: Vec<&str> = path.split("::").map(str::trim).collect();
+    let head_len = segments
+        .iter()
+        .position(|segment| is_wildcard(segment))
+        .unwrap_or(segments.len());
+    let head = &segments[..head_len];
+    if head.is_empty() {
+        return None;
+    }
+    resolve_base(graph, view, head)
+}
+
+/// Does this scope path end in a wildcard, i.e. does it name a subtree rather
+/// than one element?
+pub fn scope_is_wildcard(path: &str) -> bool {
+    path.split("::").map(str::trim).any(is_wildcard)
+}
+
+/// `::`-qualified name of an element, built from the declared names on its
+/// owner chain — `feature.VehicleViews.vehicle` becomes
+/// `VehicleViews::vehicle`.
+///
+/// Derived from ownership rather than by string-munging the element id: id
+/// templates are an emission detail that varies per metaclass, and one of them
+/// changing should not silently change what a saved view claims to expose.
+pub fn qualified_name(graph: &Graph, node: NodeId) -> Option<String> {
+    let mut segments = vec![declared_name(graph, node)?];
+    for owner in ancestors(graph, node) {
+        match declared_name(graph, owner) {
+            Some(name) => segments.push(name),
+            None => break,
+        }
+    }
+    segments.reverse();
+    Some(segments.join("::"))
 }
 
 fn is_wildcard(segment: &str) -> bool {

@@ -17,9 +17,16 @@ use crate::model::{
 pub mod element_view;
 pub mod expose;
 pub mod model_views;
+pub mod reify;
 
 pub use element_view::ElementView;
-pub use expose::{ExposeResolution, exposed_elements, resolve_exposed_elements};
+pub use expose::{
+    ExposeResolution, exposed_elements, inherited_filter_conditions, qualified_name,
+    resolve_exposed_elements, scope_base, scope_is_wildcard,
+};
+pub use reify::{
+    ExposeDraft, NotReifiable, ViewUsageDraft, usage_from_view_spec, view_spec_from_usage,
+};
 pub use model_views::{
     ElementDetailsDto, ElementPropertyRowDto, ElementPropertyTableDto, ElementSummaryDto,
     ExplorerAttributeDto, GraphDto, GraphEdgeDto, GraphNodeDto, GraphScope, InheritedPropertiesDto,
@@ -142,7 +149,8 @@ impl Default for DiagramDirectionDto {
 /// `ExplicitElements` records a fixed set instead. A saved exploration needs
 /// this: the user pruned the graph by hand, and re-running the traversal would
 /// hand back a superset of what they curated. It is also what a materialized
-/// save produces -- see `materialize_diagram_scope` (save-as-view V-6.3).
+/// save produces: `reify::usage_from_view_spec` writes one `expose` per element
+/// when this holds a set, and prefers it over `root` (save-as-view V-6.3).
 ///
 /// Tables have had `TableScopeDto::ExplicitElements` since before this; the
 /// diagram family had no equivalent, which is why a materialized diagram view
