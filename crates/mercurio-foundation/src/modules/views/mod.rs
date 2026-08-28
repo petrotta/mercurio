@@ -15,9 +15,11 @@ use crate::model::{
 };
 
 pub mod element_view;
+pub mod expose;
 pub mod model_views;
 
 pub use element_view::ElementView;
+pub use expose::{ExposeResolution, exposed_elements, resolve_exposed_elements};
 pub use model_views::{
     ElementDetailsDto, ElementPropertyRowDto, ElementPropertyTableDto, ElementSummaryDto,
     ExplorerAttributeDto, GraphDto, GraphEdgeDto, GraphNodeDto, GraphScope, InheritedPropertiesDto,
