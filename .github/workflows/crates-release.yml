@@ -1,0 +1,123 @@
+name: Crates release
+
+on:
+  push:
+    tags:
+      - "foundation-v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Resume publishing the release version from this ref
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-foundation-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  HOST_REF: 735c781ce886265b3cc2a2b92ea6ec0c0808b795
+  SYSML_REF: cf7eea2be6aed7668e7cbbdc2f8c95100c3b5d1b
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mercurio-foundation
+      - uses: actions/checkout@v4
+        with:
+          repository: mercurio-labs/mercurio-sysml
+          ref: ${{ env.SYSML_REF }}
+          path: mercurio-sysml
+      - uses: actions/checkout@v4
+        with:
+          repository: mercurio-labs/mercurio-host-adapters
+          ref: ${{ env.HOST_REF }}
+          path: mercurio-host-adapters
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate release identity
+        working-directory: mercurio-foundation
+        shell: bash
+        run: |
+          version="$(awk '/^\[workspace.package\]/{in_package=1; next} in_package && /^version = /{gsub(/"/, "", $3); print $3; exit}' Cargo.toml)"
+          test -n "${version}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            test "${GITHUB_REF_NAME}" = "foundation-v${version}"
+          fi
+      - name: Test workspace
+        working-directory: mercurio-foundation
+        run: cargo test --workspace --locked
+      - name: Verify the public package set
+        working-directory: mercurio-foundation
+        shell: bash
+        run: |
+          publishable="$(cargo metadata --no-deps --format-version 1 | jq -c '[.packages[] | select(.publish == null or (.publish | length > 0)) | .name] | sort')"
+          test "${publishable}" = '["mercurio-foundation"]'
+      - name: Build public rustdoc
+        working-directory: mercurio-foundation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --package mercurio-foundation --all-features --no-deps --locked
+      - name: Assemble the crates.io package
+        working-directory: mercurio-foundation
+        run: cargo package --package mercurio-foundation --locked
+      - name: Test the packaged crate independently
+        working-directory: mercurio-foundation
+        shell: bash
+        run: |
+          version="$(awk '/^\[workspace.package\]/{in_package=1; next} in_package && /^version = /{gsub(/"/, "", $3); print $3; exit}' Cargo.toml)"
+          package_dir="$(mktemp -d)"
+          tar -xzf "target/package/mercurio-foundation-${version}.crate" -C "${package_dir}"
+          cargo test --manifest-path "${package_dir}/mercurio-foundation-${version}/Cargo.toml" --all-features --locked
+
+  publish:
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    needs: qualify
+    runs-on: ubuntu-latest
+    environment: crates-io
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish mercurio-foundation
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(awk '/^\[workspace.package\]/{in_package=1; next} in_package && /^version = /{gsub(/"/, "", $3); print $3; exit}' Cargo.toml)"
+          package="mercurio-foundation"
+
+          published() {
+            curl --fail --silent --show-error \
+              --header "User-Agent: mercurio-foundation-release/${version}" \
+              "https://crates.io/api/v1/crates/${package}" |
+              jq --exit-status --arg version "${version}" \
+                '.versions | any(.num == $version)' >/dev/null
+          }
+
+          if published; then
+            echo "${package} ${version} is already published"
+            exit 0
+          fi
+
+          for attempt in {1..15}; do
+            if cargo publish --locked --package "${package}"; then
+              exit 0
+            fi
+            if published; then
+              exit 0
+            fi
+            if [[ "${attempt}" -eq 15 ]]; then
+              echo "failed to publish ${package} ${version}" >&2
+              exit 1
+            fi
+            echo "publish attempt ${attempt} failed; retrying ${package} in 60 seconds"
+            sleep 60
+          done

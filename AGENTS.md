@@ -4,32 +4,35 @@ Source-language-neutral KIR substrate, graph, runtime, and simulation core. This
 
 ---
 
-## Crates
+## Public Package and Internal Modules
 
-| Crate | Responsibility |
-|-------|---------------|
-| `mercurio-kir` | KIR data contract: `KirDocument`, `KirElement`, validation, merge, IO. Small and stable — keep it small. |
-| `mercurio-language-contracts` | Language-service contracts, diagnostics, `LanguageService` / `LanguageRegistry` traits, expression IR |
-| `mercurio-model` | Source-language-neutral model structures, graph projection, metamodel views |
-| `mercurio-runtime` | **Deterministic** runtime: index construction, semantic queries, expression evaluation — no I/O |
-| `mercurio-core` | Public compatibility facade: reexports the focused foundation crates under the `mercurio_core` Rust library target |
-| `mercurio-simulation-core` | Simulation execution primitives shared by all execution back-ends |
-| `mercurio-views` | UI-oriented view DTOs and rendering helpers |
+`mercurio-foundation` is the repository's only publishable Cargo package. The
+architecture remains split into focused modules inside that package: `kir`,
+`language_contracts`, `model`, `runtime`, `authoring`, `semantic_services`,
+`workspace`, `analysis`, `query_dsl`, `codegen`, `session`, `simulation_core`,
+and `views`.
+
+The former package directories remain workspace members only as
+`publish = false` compatibility shims for source-tree consumers during the
+transition. They reexport the canonical `mercurio-foundation` APIs and must not
+acquire new implementation code or be published again.
 
 Key file locations:
 
 ```
-crates/mercurio-kir/src/           — KIR schema and validation
-crates/mercurio-model/src/graph.rs — graph projection and traversal API
-crates/mercurio-runtime/src/       — runtime construction and semantic queries
-crates/mercurio-language-contracts/src/ — diagnostics, LanguageService trait
+crates/mercurio-foundation/src/modules/kir/ — KIR schema and validation
+crates/mercurio-foundation/src/modules/model/graph.rs — graph projection and traversal API
+crates/mercurio-foundation/src/modules/runtime/ — runtime construction and semantic queries
+crates/mercurio-foundation/src/modules/language_contracts/ — diagnostics, LanguageService trait
+crates/mercurio-foundation/src/facade/ — root-level compatibility facade
 ```
 
 ---
 
 ## Forbidden Dependencies
 
-These crates must **never** import from:
+The `mercurio-foundation` package and its internal modules must **never** import
+from:
 
 ```
 mercurio-adapter    mercurio-ai           mercurio-console-api
@@ -51,7 +54,7 @@ The machine-readable constraints live in [`repo-boundaries.json`](repo-boundarie
 
 ## WASM Portability
 
-Foundation crates must compile to `wasm32-unknown-unknown` without changes. Avoid `std::fs`, `std::thread`, system time, or OS-specific APIs. Abstract I/O behind trait boundaries.
+Foundation modules must compile to `wasm32-unknown-unknown` without changes. Avoid `std::fs`, `std::thread`, system time, or OS-specific APIs. Abstract I/O behind trait boundaries.
 
 ---
 
@@ -67,8 +70,8 @@ cargo test --no-run      # compile-only smoke check
 
 ## Key Constraints
 
-- `mercurio-runtime` must remain deterministic — no randomness, wall-clock reads, or I/O in core evaluation paths.
-- `mercurio-kir` is a **stable data contract** — adding `Option` fields is safe; removing or renaming fields breaks all consumers.
+- The `runtime` module must remain deterministic — no randomness, wall-clock reads, or I/O in core evaluation paths.
+- The `kir` module is a **stable data contract** — adding `Option` fields is safe; removing or renaming fields breaks all consumers.
 - KIR `kind` values must correspond to KerML/SysML v2 metaclass names — never invent proprietary kinds.
 - Do not add concrete language parsers or version-specific metamodel bundles here; those belong in `mercurio-sysml`.
 
@@ -76,7 +79,7 @@ cargo test --no-run      # compile-only smoke check
 
 ## Further Reading
 
-- [docs/crates.md](docs/crates.md) — detailed crate responsibilities
+- [docs/crates.md](docs/crates.md) — package and module responsibilities
 - [docs/kir.md](docs/kir.md) — KIR format and schema
 - [docs/philosophy.md](docs/philosophy.md) — design philosophy and boundary rationale
 - [docs/language-services.md](docs/language-services.md) — `LanguageService` contract

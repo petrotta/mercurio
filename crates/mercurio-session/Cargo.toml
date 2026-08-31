@@ -7,15 +7,7 @@ description.workspace = true
 repository.workspace = true
 readme.workspace = true
 rust-version.workspace = true
+publish = false
 
 [dependencies]
-mercurio-analysis = { path = "../mercurio-analysis", version = "0.1.0" }
-mercurio-authoring = { path = "../mercurio-authoring", version = "0.1.0" }
-mercurio-kir = { path = "../mercurio-kir", version = "0.1.0" }
-mercurio-semantic-services = { path = "../mercurio-semantic-services", version = "0.1.0" }
-mercurio-workspace = { path = "../mercurio-workspace", version = "0.1.0" }
-serde.workspace = true
-serde_json.workspace = true
-
-[dev-dependencies]
-mercurio-authoring = { path = "../mercurio-authoring", version = "0.1.0", features = ["toy-parser"] }
+mercurio-foundation = { path = "../mercurio-foundation", version = "0.86.0" }

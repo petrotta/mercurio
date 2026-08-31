@@ -10,6 +10,7 @@
     "mercurio-analysis",
     "mercurio-authoring",
     "mercurio-codegen",
+    "mercurio-foundation",
     "mercurio-query-dsl",
     "mercurio-semantic-services",
     "mercurio-session",
@@ -132,6 +133,22 @@
       "mercurio-wasm"
     ],
     "mercurio-codegen": [
+      "mercurio-adapter",
+      "mercurio-ai",
+      "mercurio-console-api",
+      "mercurio-capability-api",
+      "mercurio-plugin-api",
+      "mercurio-plugin-host",
+      "mercurio-reference-capabilities",
+      "mercurio-product",
+      "mercurio-python",
+      "mercurio-reasoner-api",
+      "mercurio-reasoner-host",
+      "mercurio-reasoning-services",
+      "mercurio-views",
+      "mercurio-wasm"
+    ],
+    "mercurio-foundation": [
       "mercurio-adapter",
       "mercurio-ai",
       "mercurio-console-api",

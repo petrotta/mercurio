@@ -12,13 +12,14 @@ members = [
     "crates/mercurio-codegen",
     "crates/mercurio-session",
     "crates/mercurio-core",
+    "crates/mercurio-foundation",
     "crates/mercurio-simulation-core",
     "crates/mercurio-views",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.86.0"
 edition = "2024"
 license = "MIT"
 description = "KerML-aligned semantic modeling substrate and KIR runtime for Mercurio."

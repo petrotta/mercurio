@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use mercurio_codegen::generate_python_facades;
-use mercurio_kir::KirDocument;
+use mercurio_foundation::KirDocument;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);

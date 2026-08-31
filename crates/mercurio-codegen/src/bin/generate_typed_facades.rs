@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use mercurio_codegen::generate_typed_facades;
-use mercurio_kir::KirDocument;
+use mercurio_foundation::KirDocument;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = env::args()

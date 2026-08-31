@@ -34,30 +34,27 @@ See [Foundation Philosophy](docs/philosophy.md) for the longer version, includin
 
 See [KIR](docs/kir.md), [Language Services](docs/language-services.md), and the [Sample Language](docs/sample-language.md).
 
-## Crates
+## Package and Modules
 
-This repository is a Cargo workspace. The crates are split by responsibility so the
-source-language-neutral core stays small and the higher-level semantic services can
-evolve without turning the facade into a catch-all crate.
+`mercurio-foundation` is this repository's only public, publishable Cargo
+package. Add it as the sole Foundation dependency:
 
-| Crate | Role |
-|-------|------|
-| `mercurio-kir` | KIR schema, validation, merge, field registry metadata, and IO. |
-| `mercurio-language-contracts` | Diagnostics, reports, expression IR, and language-service contracts. |
-| `mercurio-model` | Graph projection, metamodel metadata, derived-model primitives, and expression evaluation support. |
-| `mercurio-runtime` | Deterministic graph runtime, derived indexes, expression evaluation, rulepacks, and runtime artifacts. |
-| `mercurio-authoring` | Source sets, language registry integration, source-preserving authoring operations, outlines, and frontend helpers. |
-| `mercurio-semantic-services` | Semantic identity, mutation planning, feasibility, legality, validation, next actions, and variant previews. |
-| `mercurio-workspace` | Repository paths, package libraries, workspace descriptors, model state, compile cache, plugin registry helpers, and performance harnesses. |
-| `mercurio-analysis` | AI review contracts, semantic assessment, model inspection and impact capabilities, cognitive context, goals, and semantic comparison. |
-| `mercurio-query-dsl` | Query parsing, query execution, Rhai DSL bindings, and capability-backed DSL reports. |
-| `mercurio-codegen` | Language profiles, metamodel concept registry, library context, and Python wrapper/code generation. |
-| `mercurio-session` | Session overlays, forks, host-authorized commits, and transaction reports. |
-| `mercurio-simulation-core` | Source-neutral deterministic simulation primitives over KIR-projected behavior facts. |
-| `mercurio-views` | View DTOs, element/model views, diagrams, tables, and deterministic view rendering helpers. |
-| `mercurio-core` | Compatibility facade crate. Its Cargo package is `mercurio-core`, and its library target remains `mercurio_core` for existing consumers. |
+```toml
+[dependencies]
+mercurio-foundation = "0.86"
+```
 
-See [Crates](docs/crates.md).
+The implementation remains organized by responsibility as modules within that
+package. Consumers can use the root facade or focused paths such as
+`mercurio_foundation::kir`, `mercurio_foundation::runtime`, and
+`mercurio_foundation::semantic_services`.
+
+The workspace still contains packages with the former internal crate names.
+They are `publish = false` compatibility shims for source-tree consumers; they
+do not define independent release units and must not receive new implementation
+code. Existing crates.io versions remain available but are frozen.
+
+See [Package and Module Architecture](docs/crates.md).
 
 ## Boundary Check
 
@@ -75,7 +72,7 @@ cargo run --manifest-path ..\mercurio-sysml\Cargo.toml -p mercurio-tools --bin c
 ```rust
 use std::collections::BTreeMap;
 
-use mercurio_core::{Graph, KIR_SCHEMA_VERSION, KirDocument, KirElement};
+use mercurio_foundation::{Graph, KIR_SCHEMA_VERSION, KirDocument, KirElement};
 use serde_json::json;
 
 let document = KirDocument {
@@ -113,3 +110,11 @@ cargo test --no-run
 ```
 
 Foundation tests use language-neutral KIR fixtures and a small test-only toy language service for registry, cache, graph, and runtime coverage.
+
+## Release
+
+Mercurio Foundation is one release unit. Only the `mercurio-foundation` package
+is published; internal modules ship as part of that crate, and compatibility
+shim packages remain unpublished.
+
+See [Releasing Mercurio Foundation](RELEASING.md).

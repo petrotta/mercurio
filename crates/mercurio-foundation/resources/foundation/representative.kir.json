@@ -1,0 +1,324 @@
+{
+  "metadata": {
+    "kir_schema_version": "0.4",
+    "name": "Representative Foundation KIR"
+  },
+  "elements": [
+    {
+      "id": "Model::Kernel::ComponentDefinition",
+      "kind": "model.Metaclass",
+      "layer": 1,
+      "properties": {
+        "qualified_name": "Model.Kernel.ComponentDefinition",
+        "declared_name": "ComponentDefinition"
+      }
+    },
+    {
+      "id": "Model::Kernel::Comment",
+      "kind": "model.Metaclass",
+      "layer": 1,
+      "properties": {
+        "qualified_name": "Model.Kernel.Comment",
+        "declared_name": "Comment",
+        "features": [
+          "Model::Kernel::Comment::body",
+          "Model::Kernel::Comment::locale"
+        ]
+      }
+    },
+    {
+      "id": "Model::Kernel::Comment::body",
+      "kind": "model.Feature",
+      "layer": 1,
+      "properties": {
+        "qualified_name": "Model.Kernel.Comment.body",
+        "declared_name": "body",
+        "owner": "Model::Kernel::Comment"
+      }
+    },
+    {
+      "id": "Model::Kernel::Comment::locale",
+      "kind": "model.Feature",
+      "layer": 1,
+      "properties": {
+        "qualified_name": "Model.Kernel.Comment.locale",
+        "declared_name": "locale",
+        "owner": "Model::Kernel::Comment"
+      }
+    },
+    {
+      "id": "pkg.Example",
+      "kind": "model.Package",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example",
+        "declared_name": "Example",
+        "members": [
+          "type.Example.Vehicle",
+          "type.Example.Controller",
+          "feature.Example.Vehicle.controller",
+          "req.Example.SafeStart",
+          "state.Example.DriveMode",
+          "activity.Example.Startup",
+          "comment.Example.Note",
+          "comment.Example.LocalizedNote"
+        ],
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "type.Example.Vehicle",
+      "kind": "model.ComponentDefinition",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Vehicle",
+        "declared_name": "Vehicle",
+        "owner": "pkg.Example",
+        "features": [
+          "feature.Example.Vehicle.controller"
+        ],
+        "specializes": [
+          "Model::Kernel::ComponentDefinition"
+        ],
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "type.Example.Controller",
+      "kind": "model.ComponentDefinition",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Controller",
+        "declared_name": "Controller",
+        "owner": "pkg.Example",
+        "specializes": [
+          "Model::Kernel::ComponentDefinition"
+        ],
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "feature.Example.Vehicle.controller",
+      "kind": "model.FeatureUsage",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Vehicle.controller",
+        "declared_name": "controller",
+        "owner": "pkg.Example",
+        "owning_type": "type.Example.Vehicle",
+        "type": "type.Example.Controller",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "req.Example.SafeStart",
+      "kind": "model.Requirement",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.SafeStart",
+        "declared_name": "SafeStart",
+        "requirement_id": "REQ-001",
+        "text": "The example model shall prevent unsafe starts.",
+        "owner": "pkg.Example",
+        "source_file": "example.model",
+        "metadata": {
+          "Review": {
+            "properties": {
+              "status": "approved",
+              "owner": "Foundation Team",
+              "reviewDate": "2026-06-03"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "state.Example.DriveMode",
+      "kind": "model.StateDefinition",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.DriveMode",
+        "declared_name": "DriveMode",
+        "owner": "pkg.Example",
+        "members": [
+          "state.Example.DriveMode.Off",
+          "state.Example.DriveMode.Starting",
+          "state.Example.DriveMode.Running",
+          "transition.Example.DriveMode.start",
+          "transition.Example.DriveMode.ready"
+        ],
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "state.Example.DriveMode.Off",
+      "kind": "model.State",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.DriveMode.Off",
+        "declared_name": "Off",
+        "owner": "state.Example.DriveMode",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "state.Example.DriveMode.Starting",
+      "kind": "model.State",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.DriveMode.Starting",
+        "declared_name": "Starting",
+        "owner": "state.Example.DriveMode",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "state.Example.DriveMode.Running",
+      "kind": "model.State",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.DriveMode.Running",
+        "declared_name": "Running",
+        "owner": "state.Example.DriveMode",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "transition.Example.DriveMode.start",
+      "kind": "model.Transition",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.DriveMode.start",
+        "declared_name": "start",
+        "owner": "state.Example.DriveMode",
+        "source": "state.Example.DriveMode.Off",
+        "target": "state.Example.DriveMode.Starting",
+        "trigger": "start",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "transition.Example.DriveMode.ready",
+      "kind": "model.Transition",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.DriveMode.ready",
+        "declared_name": "ready",
+        "owner": "state.Example.DriveMode",
+        "source": "state.Example.DriveMode.Starting",
+        "target": "state.Example.DriveMode.Running",
+        "trigger": "ready",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "activity.Example.Startup",
+      "kind": "model.ActivityDefinition",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Startup",
+        "declared_name": "Startup",
+        "owner": "pkg.Example",
+        "members": [
+          "action.Example.Startup.Validate",
+          "action.Example.Startup.Enable",
+          "object.Example.Startup.Command",
+          "flow.Example.Startup.commandToValidate",
+          "flow.Example.Startup.validateToEnable"
+        ],
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "action.Example.Startup.Validate",
+      "kind": "model.ActionUsage",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Startup.Validate",
+        "declared_name": "Validate",
+        "owner": "activity.Example.Startup",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "action.Example.Startup.Enable",
+      "kind": "model.ActionUsage",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Startup.Enable",
+        "declared_name": "Enable",
+        "owner": "activity.Example.Startup",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "object.Example.Startup.Command",
+      "kind": "model.ObjectNode",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Startup.Command",
+        "declared_name": "Command",
+        "owner": "activity.Example.Startup",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "flow.Example.Startup.commandToValidate",
+      "kind": "model.Flow",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Startup.commandToValidate",
+        "declared_name": "commandToValidate",
+        "owner": "activity.Example.Startup",
+        "source": "object.Example.Startup.Command",
+        "target": "action.Example.Startup.Validate",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "flow.Example.Startup.validateToEnable",
+      "kind": "model.Flow",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Startup.validateToEnable",
+        "declared_name": "validateToEnable",
+        "owner": "activity.Example.Startup",
+        "source": "action.Example.Startup.Validate",
+        "target": "action.Example.Startup.Enable",
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "comment.Example.Note",
+      "kind": "model.Comment",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.Note",
+        "declared_name": "Note",
+        "body": "Package-level review note.",
+        "locale": "en-US",
+        "owner": "pkg.Example",
+        "specializes": [
+          "Model::Kernel::Comment"
+        ],
+        "source_file": "example.model"
+      }
+    },
+    {
+      "id": "comment.Example.LocalizedNote",
+      "kind": "model.TextualRepresentation",
+      "layer": 2,
+      "properties": {
+        "qualified_name": "Example.LocalizedNote",
+        "declared_name": "LocalizedNote",
+        "body": "Localized package note.",
+        "locale": "fr-FR",
+        "owner": "pkg.Example",
+        "specializes": [
+          "Model::Kernel::Comment"
+        ],
+        "source_file": "example.model"
+      }
+    }
+  ]
+}
